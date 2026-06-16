@@ -1,0 +1,28 @@
+services:
+  neo4j:
+    image: neo4j:5.20-community
+    container_name: thoth-neo4j
+    ports:
+      - "7475:7474"   # HTTP browser (7474는 flux-neo4j 사용 중 → 7475로 매핑)
+      - "7688:7687"   # Bolt (7687 충돌 회피 → 7688)
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:-thothpass}"
+      # APOC + Graph Data Science (GDS) for WP3
+      NEO4J_PLUGINS: '["apoc","graph-data-science"]'
+      NEO4J_dbms_security_procedures_unrestricted: "gds.*,apoc.*"
+      NEO4J_dbms_security_procedures_allowlist: "gds.*,apoc.*"
+      NEO4J_server_memory_heap_initial__size: "1G"
+      NEO4J_server_memory_heap_max__size: "2G"
+    volumes:
+      - thoth_neo4j_data:/data
+      - thoth_neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  thoth_neo4j_data:
+  thoth_neo4j_logs:

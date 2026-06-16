@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Env / secrets
+.env
+*.local
+
+# Data
+data/*.csv
+data/*.parquet
+*.dump
+
+# Node (console)
+console/node_modules/
+console/dist/
+
+# OS
+.DS_Store
+
+# Session/tool local state
+.claude/
+.omc/

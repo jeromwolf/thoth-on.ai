@@ -1,0 +1,36 @@
+[project]
+name = "thoth-on"
+version = "0.2.0"
+description = "THOTH-ON — 관계 중심 보험 사기 탐지 지식그래프 플랫폼"
+requires-python = ">=3.9"
+dependencies = [
+    "neo4j>=5.20,<6",
+    "pydantic>=2.5",
+    "pydantic-settings>=2.1",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["thoth*", "ingest*", "detection*", "explain*", "api*", "core*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "smoke: 외부 의존성 없는 빠른 검증",
+    "integration: 실제 Neo4j 컨테이너 필요",
+]
+addopts = "-ra"
