@@ -1,4 +1,6 @@
-.PHONY: help venv install up down logs wait-neo4j schema synth seed reset test test-smoke test-int psh
+.PHONY: help venv install up down logs wait-neo4j schema synth seed reset serve test test-smoke test-int psh
+
+THOTH_API_PORT ?= 8468
 
 PY ?= python3
 VENV ?= .venv
@@ -48,6 +50,9 @@ test-smoke: ## 스모크 테스트 (Neo4j 불필요)
 
 test-int: ## 통합 테스트 (Neo4j 필요)
 	$(PYTEST) -m integration
+
+serve: ## FastAPI 기동 (THOTH_API_PORT, 기본 8468)
+	$(VENV)/bin/uvicorn api.main:app --reload --host 127.0.0.1 --port $(THOTH_API_PORT)
 
 psh: ## cypher-shell 접속
 	docker exec -it thoth-neo4j cypher-shell -u neo4j -p $${NEO4J_PASSWORD:-thothpass}

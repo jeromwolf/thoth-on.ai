@@ -11,3 +11,4 @@ uvicorn[standard]>=0.29
 # Dev/test
 pytest>=8.0
 pytest-cov>=4.1
+httpx>=0.27          # FastAPI TestClient 의존(WP5 API 계약 테스트)

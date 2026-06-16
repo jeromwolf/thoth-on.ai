@@ -21,6 +21,10 @@ class Settings:
 
     pii_salt: str = os.getenv("THOTH_PII_SALT", "change-me-in-prod")
 
+    # API 서버 (WP5). 흔한 8000/8080 회피 — THOT 폰 키패드(T8·H4·O6·T8) 유래 8468.
+    api_host: str = os.getenv("THOTH_API_HOST", "127.0.0.1")
+    api_port: int = int(os.getenv("THOTH_API_PORT", "8468"))
+
     llm_provider: str = os.getenv("THOTH_LLM_PROVIDER", "mock")
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
