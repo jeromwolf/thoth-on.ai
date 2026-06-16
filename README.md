@@ -31,5 +31,16 @@ Neo4j 브라우저: http://localhost:7474 (neo4j / `.env`의 NEO4J_PASSWORD)
 | `core/security/` | RBAC·감사 | NFR |
 | `tests/` | AC 기반 테스트 | — |
 
+## 탐지 실행 (WP2)
+```bash
+python -m detection.evaluate   # 주입 링 재현율·정밀도·점수 분리도 측정
+```
+
+## 진행 현황
+- ✅ **WP0** 부트스트랩 (인프라·RBAC/감사 골격·테스트 러너)
+- ✅ **WP1** 데이터 코어 (스키마·합성데이터·멱등적재·엔티티해소·가명처리)
+- ✅ **WP2** 탐지 코어 (공유엔티티·핫스팟·crash-for-cash·리스크 스코어링) — 합성데이터 기준 재현율 1.0 / 오탐 0
+- ⬜ WP3 GDS 파이프라인 · WP4 케이스·설명 · WP5 API/콘솔 · WP6 운영화
+
 ## 개발 워크플로우
 각 WP 완료 시 테스트를 실행한다 (`make test`). 마커: `smoke`(빠름) / `integration`(Neo4j 필요).
