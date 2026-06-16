@@ -1,9 +1,10 @@
 services:
+  # ── Neo4j 5 + GDS ──────────────────────────────────────────────────────────
   neo4j:
     image: neo4j:5.20-community
     container_name: thoth-neo4j
     ports:
-      - "7475:7474"   # HTTP browser (7474는 flux-neo4j 사용 중 → 7475로 매핑)
+      - "7475:7474"   # HTTP browser (7474는 flux-neo4j 사용 중 → 7475 로 매핑)
       - "7688:7687"   # Bolt (7687 충돌 회피 → 7688)
     environment:
       NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:-thothpass}"
@@ -16,12 +17,76 @@ services:
     volumes:
       - thoth_neo4j_data:/data
       - thoth_neo4j_logs:/logs
+    networks:
+      - thoth-net
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 30s
+
+  # ── FastAPI (WP5) ───────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: thoth-api
+    ports:
+      - "${THOTH_API_PORT:-8468}:8468"
+    environment:
+      # Neo4j 컨테이너 내부 Bolt URI (docker network 호스트명 사용)
+      NEO4J_URI: "bolt://neo4j:7687"
+      NEO4J_USER: "${NEO4J_USER:-neo4j}"
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD:-thothpass}"
+      NEO4J_DATABASE: "${NEO4J_DATABASE:-neo4j}"
+      THOTH_API_HOST: "0.0.0.0"
+      THOTH_API_PORT: "8468"
+      THOTH_PII_SALT: "${THOTH_PII_SALT:-change-me-in-prod}"
+      THOTH_LLM_PROVIDER: "${THOTH_LLM_PROVIDER:-mock}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://localhost:11434}"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen2.5:14b}"
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    networks:
+      - thoth-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8468/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  # ── React Console (WP6) ─────────────────────────────────────────────────────
+  console:
+    build:
+      context: .
+      dockerfile: console/Dockerfile
+      args:
+        VITE_API_BASE: "/api"
+    container_name: thoth-console
+    ports:
+      - "${THOTH_CONSOLE_PORT:-8469}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - thoth-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 10s
+    restart: unless-stopped
+
+networks:
+  thoth-net:
+    driver: bridge
 
 volumes:
   thoth_neo4j_data:

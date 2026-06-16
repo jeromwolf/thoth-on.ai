@@ -30,3 +30,6 @@ console/dist/
 # Session/tool local state
 .claude/
 .omc/
+
+# Runtime audit log
+logs/
