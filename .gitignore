@@ -17,6 +17,7 @@ htmlcov/
 # Data
 data/*.csv
 data/*.parquet
+data/synthetic/
 *.dump
 
 # Node (console)

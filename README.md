@@ -10,6 +10,9 @@
 cp .env.example .env          # 필요시 비밀번호 수정
 make install                  # .venv + 의존성
 make up && make wait-neo4j    # Neo4j(+GDS) 기동 후 대기
+make schema                   # 스키마 제약·인덱스 적용 (WP1)
+make synth                    # 합성 자동차보험 데이터 생성 (사기 링 주입)
+make seed                     # 멱등 적재 (엔티티 해소·가명처리 포함)
 make test-smoke               # 외부 의존성 없는 검증
 make test-int                 # Neo4j 통합 검증 (GDS 포함)
 ```

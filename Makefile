@@ -1,4 +1,4 @@
-.PHONY: help venv install up down logs wait-neo4j schema seed reset test test-smoke test-int psh
+.PHONY: help venv install up down logs wait-neo4j schema synth seed reset test test-smoke test-int psh
 
 PY ?= python3
 VENV ?= .venv
@@ -31,8 +31,11 @@ wait-neo4j: ## Neo4j 헬스 대기
 schema: ## 스키마 적용 (WP1)
 	$(PYTHON) -m thoth.db apply graph/01_schema.cypher
 
-seed: ## 시드 적재 (WP1)
-	$(PYTHON) -m thoth.db apply graph/02_seed_data.cypher
+synth: ## 합성 데이터 생성 (WP1, data/synthetic/*.csv)
+	$(PYTHON) -m ingest.synth_generator
+
+seed: ## 합성 데이터 멱등 적재 (WP1)
+	$(PYTHON) -m ingest.loader load data/synthetic
 
 reset: ## 그래프 전체 삭제
 	$(PYTHON) -m thoth.db reset
