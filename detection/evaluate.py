@@ -55,19 +55,21 @@ def evaluate(
     *,
     threshold: float = scoring.DEFAULT_ALERT_THRESHOLD,
     include_address: bool = True,
+    use_gds: bool = False,
 ) -> EvalResult:
     """탐지 성능을 평가한다.
 
     Args:
         threshold: 알림(탐지) 판정 점수 임계치.
         include_address: 주소 공유(약 신호) 포함 여부.
+        use_gds: GDS 군집·중심성 신호(WP3)를 corroborating 가산으로 반영할지.
 
     Returns:
         재현율/정밀도/분리도 등을 담은 ``EvalResult``.
     """
     total_fraud, total_rings = _ground_truth()
 
-    risks = scoring.score_customers(include_address=include_address)
+    risks = scoring.score_customers(include_address=include_address, use_gds=use_gds)
     scored = list(risks.values())
 
     fraud = [r for r in scored if r.is_fraud_ring]
@@ -151,6 +153,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="탐지 판정 점수 임계치")
     p.add_argument("--no-address", action="store_true",
                    help="주소 공유(약 신호)를 제외하고 평가")
+    p.add_argument("--gds", action="store_true",
+                   help="GDS 군집·중심성 신호(WP3)를 corroborating 으로 반영")
     return p.parse_args(argv)
 
 
@@ -162,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     res = evaluate(
         threshold=args.threshold,
         include_address=not args.no_address,
+        use_gds=args.gds,
     )
     _print_report(res)
     return 0

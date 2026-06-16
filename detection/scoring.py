@@ -32,6 +32,15 @@ W_SHARED_ADDRESS = 6.0    # 동일 주소 공유 (약 — 배경 노이즈 큼)
 W_CROSS_WITNESS = 45.0    # 상호 교차 목격 (강 — 링 핵심)
 W_HOTSPOT = 8.0           # 핫스팟 엔티티 이용 (약 — corroborating)
 
+# GDS 신호 (WP3 · FR-3.4) — 선택적 가중치. 기본 비활성(use_gds=False)이며
+# 활성 시 corroborating 가산점으로만 작동(룰 신호를 대체하지 않음).
+#   · 다수 멤버 Louvain 커뮤니티 소속: 정상 고객은 단독(size 1) 커뮤니티에 떨어지고
+#     링 멤버는 2명 이상 동일 커뮤니티로 묶이는 구조적 신호(실측: size>=2 커뮤니티는
+#     전원 링 멤버). ring_id 가 아닌 louvain_community(순수 구조)만 사용.
+#   · 높은 PageRank: 핫스팟 허브 이용을 corroborate.
+W_GDS_COMMUNITY = 20.0    # 다수 멤버 커뮤니티 소속 (구조적 corroborating)
+W_GDS_PAGERANK = 5.0      # 상대적으로 높은 PageRank corroborating
+
 # 공유 군집/순환의 규모가 클수록 가산(군집 크기 비례 보너스, 상한 있음).
 CLUSTER_SIZE_BONUS = 3.0  # (군집 고객 수 - 2) 당 가산점
 CLUSTER_SIZE_BONUS_CAP = 15.0
@@ -91,6 +100,7 @@ def score_customers(
     min_customers: int = detect.DEFAULT_MIN_CUSTOMERS,
     include_address: bool = True,
     alert_threshold: float = DEFAULT_ALERT_THRESHOLD,
+    use_gds: bool = False,
 ) -> dict[str, CustomerRisk]:
     """전 고객 리스크 스코어 산출 (FR-3.5).
 
@@ -103,6 +113,10 @@ def score_customers(
         alert_threshold: 알림 플래그 임계치(모듈 전역 기본을 덮어쓰지 않고
             CustomerRisk.alerted 판정에 사용하려면 점수만 보면 됨; 본 함수는
             반환 dict 의 점수로 판정 가능하도록 임계치를 신호에 기록).
+        use_gds: True 면 GDS 군집(Louvain)·중심성(PageRank) 신호를 corroborating
+            가산점으로 반영(WP3 · FR-3.4). ``gds_pipeline.run_pipeline`` 으로
+            write 된 ``louvain_community``·``pagerank_score`` 속성이 필요하다.
+            속성이 없으면 GDS 신호는 자동 생략(기존 점수 유지).
 
     Returns:
         ``{customer_id: CustomerRisk}`` 매핑. 신호가 있는 고객만 포함.
@@ -167,6 +181,10 @@ def score_customers(
                 },
             )
 
+    # --- GDS 신호 (WP3 · FR-3.4, 선택적 corroborating) ---
+    if use_gds:
+        _apply_gds_signals(risks, _get)
+
     # ground truth 라벨 부착 (평가/검증용 — 점수 계산에는 미사용)
     _attach_ground_truth(risks)
 
@@ -176,6 +194,68 @@ def score_customers(
             r.signals.append({"type": "_alert_threshold", "value": alert_threshold})
 
     return risks
+
+
+def _apply_gds_signals(
+    risks: dict[str, CustomerRisk],
+    get_risk: Any,
+) -> None:
+    """GDS 군집(Louvain)·중심성(PageRank) 신호를 corroborating 가산점으로 반영.
+
+    ground truth(ring_id)를 쓰지 않고 순수 구조 신호만 사용한다:
+        · 다수 멤버 Louvain 커뮤니티(같은 커뮤니티에 Customer 2명 이상) 소속
+          → 정상 고객은 단독 커뮤니티에 떨어지므로 강한 corroborating 신호.
+        · 커뮤니티 상대 PageRank 가 높은 핫스팟 인접 고객 → 약한 가산.
+
+    GDS write 속성(``louvain_community``)이 없으면(파이프라인 미실행) 조용히 생략.
+
+    Args:
+        risks: 기존 점수가 매겨진 고객 risk 맵(in-place 갱신).
+        get_risk: ``score_customers`` 의 내부 _get(cid) — 신규 고객 생성용.
+    """
+    from thoth import db
+
+    # 다수 멤버 Louvain 커뮤니티에 속한 고객 + 해당 커뮤니티 크기 조회.
+    try:
+        rows = db.run(
+            """
+            MATCH (c:Customer)
+            WHERE c.louvain_community IS NOT NULL
+            WITH c.louvain_community AS comm, collect(c) AS members
+            WHERE size(members) >= 2
+            UNWIND members AS c
+            RETURN c.customer_id AS cid,
+                   comm AS community,
+                   size(members) AS community_size,
+                   coalesce(c.pagerank_score, 0.0) AS pagerank
+            """
+        )
+    except Exception:
+        return  # GDS 속성 미존재 — 신호 생략(기존 점수 유지)
+
+    if not rows:
+        return
+
+    for row in rows:
+        cid = row["cid"]
+        r = risks.get(cid)
+        if r is None:
+            r = get_risk(cid)
+        r.add_signal(
+            "GDS_COMMUNITY",
+            W_GDS_COMMUNITY,
+            {
+                "community": row["community"],
+                "community_size": row["community_size"],
+            },
+        )
+        # 커뮤니티 내 상대적으로 높은 PageRank 면 약한 추가 가산.
+        if float(row["pagerank"]) > 0.0:
+            r.add_signal(
+                "GDS_PAGERANK",
+                W_GDS_PAGERANK,
+                {"pagerank_score": round(float(row["pagerank"]), 4)},
+            )
 
 
 def _attach_ground_truth(risks: dict[str, CustomerRisk]) -> None:
