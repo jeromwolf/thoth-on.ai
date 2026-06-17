@@ -18,7 +18,12 @@ htmlcov/
 data/*.csv
 data/*.parquet
 data/synthetic/
+data/synthetic_large/
+data/*.db
 *.dump
+
+# Vercel
+.vercel/
 
 # Node (console)
 console/node_modules/

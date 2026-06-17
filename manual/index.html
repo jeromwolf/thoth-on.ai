@@ -1,0 +1,1653 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>THOTH-ON 사용 안내서 — 보험 조직 사기 탐지 시스템</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600;700&family=Noto+Sans+KR:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ─── RESET ───────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; font-size: 17px; }
+
+    /* ─── TOKENS ──────────────────────────────────────────────────── */
+    :root {
+      --white:       #ffffff;
+      --off-white:   #f6f8fb;
+      --surface:     #eef1f6;
+      --surface-2:   #e5e9f0;
+
+      --ink:         #1a2233;
+      --ink-2:       #384358;
+      --ink-3:       #5a6a85;
+      --ink-4:       #8898b0;
+
+      --blue:        #2c5eed;
+      --blue-deep:   #1d47c4;
+      --blue-pale:   #e8eeff;
+      --blue-mid:    #c5d2fa;
+
+      --teal:        #0d7a8c;
+      --teal-pale:   #e0f5f8;
+
+      --red:         #c8182e;
+      --red-pale:    #fde8ea;
+
+      --amber:       #b04800;
+      --amber-pale:  #fef0e0;
+
+      --green:       #1a7a52;
+      --green-pale:  #dcf5ec;
+
+      --border:      rgba(26,34,51,0.10);
+      --border-2:    rgba(26,34,51,0.18);
+
+      --serif:   'Noto Serif KR', Georgia, serif;
+      --sans:    'Noto Sans KR', sans-serif;
+      --mono:    'DM Mono', 'Courier New', monospace;
+
+      --r-sm:   4px;
+      --r:      8px;
+      --r-lg:   14px;
+      --r-xl:   20px;
+
+      --nav-w:  268px;
+      --hdr-h:  64px;
+
+      --shadow-sm: 0 1px 4px rgba(26,34,51,0.08);
+      --shadow:    0 4px 20px rgba(26,34,51,0.10);
+      --shadow-lg: 0 12px 48px rgba(26,34,51,0.14);
+    }
+
+    /* ─── BASE ────────────────────────────────────────────────────── */
+    body {
+      background: var(--off-white);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 17px;
+      line-height: 1.7;
+      min-height: 100vh;
+    }
+
+    a { color: var(--blue); text-decoration: none; }
+
+    /* ─── HEADER ──────────────────────────────────────────────────── */
+    .hdr {
+      position: sticky;
+      top: 0;
+      z-index: 200;
+      height: var(--hdr-h);
+      background: rgba(255,255,255,0.97);
+      border-bottom: 1px solid var(--border);
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 32px;
+      backdrop-filter: blur(12px);
+    }
+    .hdr-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .hdr-icon {
+      width: 34px; height: 34px;
+      background: var(--blue-pale);
+      border: 1.5px solid var(--blue-mid);
+      border-radius: var(--r);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px;
+    }
+    .hdr-name {
+      font-family: var(--serif);
+      font-size: 19px;
+      font-weight: 700;
+      color: var(--blue-deep);
+      letter-spacing: 0.04em;
+    }
+    .hdr-sub {
+      font-size: 11px;
+      color: var(--ink-4);
+      font-family: var(--mono);
+    }
+    .hdr-pill {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border-2);
+      background: var(--surface);
+      color: var(--ink-3);
+    }
+
+    /* ─── LAYOUT ──────────────────────────────────────────────────── */
+    .layout {
+      display: flex;
+      min-height: calc(100vh - var(--hdr-h));
+    }
+
+    /* ─── SIDEBAR ─────────────────────────────────────────────────── */
+    .nav {
+      position: sticky;
+      top: var(--hdr-h);
+      width: var(--nav-w);
+      height: calc(100vh - var(--hdr-h));
+      overflow-y: auto;
+      flex-shrink: 0;
+      padding: 28px 0 40px;
+      background: var(--white);
+      border-right: 1px solid var(--border);
+      scrollbar-width: thin;
+      scrollbar-color: var(--surface-2) transparent;
+    }
+    .nav::-webkit-scrollbar { width: 3px; }
+    .nav::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 3px; }
+
+    .nav-group {
+      padding: 0 0 8px;
+    }
+    .nav-label {
+      padding: 0 22px 8px;
+      font-size: 10px;
+      font-family: var(--mono);
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-4);
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 22px;
+      font-size: 13.5px;
+      color: var(--ink-2);
+      text-decoration: none;
+      border-left: 2px solid transparent;
+      transition: all 0.15s;
+      line-height: 1.4;
+    }
+    .nav-item:hover {
+      color: var(--blue);
+      background: var(--blue-pale);
+      border-left-color: var(--blue);
+    }
+    .nav-item.active {
+      color: var(--blue);
+      background: var(--blue-pale);
+      border-left-color: var(--blue);
+      font-weight: 600;
+    }
+    .nav-n {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-4);
+      width: 18px;
+      flex-shrink: 0;
+    }
+    .nav-divider {
+      height: 1px;
+      margin: 12px 22px;
+      background: var(--border);
+    }
+
+    /* ─── MAIN ────────────────────────────────────────────────────── */
+    .main {
+      flex: 1;
+      min-width: 0;
+      padding: 0 72px 80px;
+      max-width: 980px;
+    }
+
+    /* ─── HERO ────────────────────────────────────────────────────── */
+    .hero {
+      padding: 72px 0 80px;
+      position: relative;
+    }
+    .hero::after {
+      content: '';
+      position: absolute;
+      top: 0; right: -72px;
+      width: 420px; height: 340px;
+      background: radial-gradient(ellipse at top right, rgba(44,94,237,0.06) 0%, transparent 65%);
+      pointer-events: none;
+    }
+    .hero-tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    .hero-tag {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 4px 11px;
+      border-radius: var(--r-sm);
+      border: 1px solid var(--border-2);
+      color: var(--ink-3);
+      background: var(--white);
+    }
+    .hero-title {
+      font-family: var(--serif);
+      font-size: clamp(34px, 4.5vw, 54px);
+      font-weight: 700;
+      color: var(--ink);
+      line-height: 1.15;
+      margin-bottom: 6px;
+    }
+    .hero-title em {
+      color: var(--blue);
+      font-style: normal;
+    }
+    .hero-lead {
+      font-size: 19px;
+      color: var(--ink-2);
+      line-height: 1.75;
+      margin: 20px 0 32px;
+      max-width: 700px;
+      font-weight: 400;
+    }
+    .hero-lead strong {
+      color: var(--ink);
+      font-weight: 600;
+    }
+    .hero-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .hero-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      background: var(--white);
+      border: 1px solid var(--border-2);
+      border-radius: var(--r);
+      box-shadow: var(--shadow-sm);
+      font-size: 13.5px;
+      color: var(--ink-2);
+      font-weight: 500;
+    }
+    .hero-pill .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot-blue  { background: var(--blue); }
+    .dot-teal  { background: var(--teal); }
+    .dot-amber { background: var(--amber); }
+    .dot-green { background: var(--green); }
+
+    /* ─── SECTION ─────────────────────────────────────────────────── */
+    .section {
+      margin-bottom: 88px;
+      padding-top: 8px;
+    }
+    .section-hd {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 32px;
+      padding-bottom: 18px;
+      border-bottom: 1.5px solid var(--border);
+    }
+    .section-n {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: var(--r-sm);
+      background: var(--blue-pale);
+      border: 1px solid var(--blue-mid);
+      color: var(--blue-deep);
+      font-weight: 500;
+      letter-spacing: 0.06em;
+    }
+    .section-title {
+      font-family: var(--serif);
+      font-size: 27px;
+      font-weight: 700;
+      color: var(--ink);
+      letter-spacing: 0.01em;
+    }
+
+    /* ─── PROSE ───────────────────────────────────────────────────── */
+    p {
+      margin-bottom: 18px;
+      font-size: 17px;
+      color: var(--ink-2);
+      line-height: 1.75;
+    }
+    strong { color: var(--ink); font-weight: 600; }
+    em { color: var(--blue-deep); font-style: normal; font-weight: 600; }
+
+    h3 {
+      font-family: var(--serif);
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--ink);
+      margin: 40px 0 14px;
+    }
+
+    /* ─── CALLOUT ─────────────────────────────────────────────────── */
+    .callout {
+      padding: 18px 22px;
+      border-radius: var(--r);
+      border-left: 3px solid;
+      margin: 24px 0;
+      font-size: 15px;
+      line-height: 1.75;
+      color: var(--ink-2);
+    }
+    .callout strong { color: var(--ink); }
+    .callout.info   { border-color: var(--teal);  background: var(--teal-pale); }
+    .callout.warn   { border-color: var(--amber); background: var(--amber-pale); }
+    .callout.danger { border-color: var(--red);   background: var(--red-pale); }
+
+    /* ─── BIG INTRO CARD ──────────────────────────────────────────── */
+    .intro-card {
+      background: var(--white);
+      border: 1.5px solid var(--border);
+      border-radius: var(--r-xl);
+      padding: 40px 44px;
+      margin-bottom: 40px;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+    }
+    .intro-card::before {
+      content: '';
+      position: absolute;
+      top: 0; right: 0;
+      width: 240px; height: 240px;
+      background: radial-gradient(circle at top right, var(--blue-pale) 0%, transparent 65%);
+    }
+    .intro-card-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--blue);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      font-weight: 500;
+    }
+    .intro-card-text {
+      font-size: 20px;
+      line-height: 1.7;
+      color: var(--ink);
+      font-weight: 400;
+      max-width: 680px;
+      position: relative;
+    }
+    .intro-card-text strong {
+      color: var(--blue-deep);
+    }
+
+    /* ─── ANALOGY BLOCK ───────────────────────────────────────────── */
+    .analogy {
+      background: var(--blue-pale);
+      border: 1px solid var(--blue-mid);
+      border-radius: var(--r-lg);
+      padding: 22px 26px;
+      margin: 24px 0;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .analogy-icon {
+      font-size: 22px;
+      flex-shrink: 0;
+      line-height: 1.5;
+    }
+    .analogy-body {
+      font-size: 15.5px;
+      color: var(--ink-2);
+      line-height: 1.7;
+    }
+    .analogy-body strong { color: var(--blue-deep); }
+
+    /* ─── SIGNAL CARDS ────────────────────────────────────────────── */
+    .signal-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+      margin: 20px 0;
+    }
+    .sig-card {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      padding: 22px 24px;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.15s, border-color 0.15s;
+    }
+    .sig-card:hover {
+      box-shadow: var(--shadow);
+      border-color: var(--border-2);
+    }
+    .sig-icon {
+      font-size: 24px;
+      margin-bottom: 10px;
+      display: block;
+    }
+    .sig-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 6px;
+    }
+    .sig-desc {
+      font-size: 13.5px;
+      color: var(--ink-3);
+      line-height: 1.65;
+    }
+    .sig-badge {
+      display: inline-block;
+      margin-top: 10px;
+      font-family: var(--mono);
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: var(--r-sm);
+      font-weight: 500;
+    }
+    .sig-badge.hi   { background: var(--red-pale);   color: var(--red);   border: 1px solid rgba(200,24,46,0.2); }
+    .sig-badge.mid  { background: var(--amber-pale);  color: var(--amber); border: 1px solid rgba(176,72,0,0.2); }
+    .sig-badge.low  { background: var(--surface);     color: var(--ink-3); border: 1px solid var(--border); }
+
+    /* ─── SCORE EXPLAINER ─────────────────────────────────────────── */
+    .score-bar-wrap {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      padding: 26px 28px;
+      margin: 24px 0;
+      box-shadow: var(--shadow-sm);
+    }
+    .score-bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+      font-family: var(--mono);
+    }
+    .score-bar-track {
+      height: 10px;
+      border-radius: 999px;
+      background: linear-gradient(to right, var(--green) 0%, #e8c930 40%, var(--amber) 65%, var(--red) 100%);
+      position: relative;
+      margin-bottom: 16px;
+    }
+    .score-bar-zones {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .zone-chip {
+      font-size: 13px;
+      padding: 5px 14px;
+      border-radius: 999px;
+      font-weight: 500;
+    }
+    .zone-chip.low    { background: var(--green-pale); color: var(--green); }
+    .zone-chip.mid    { background: var(--amber-pale); color: var(--amber); }
+    .zone-chip.high   { background: var(--red-pale);   color: var(--red);   }
+
+    /* ─── STEP LIST ───────────────────────────────────────────────── */
+    .steps {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 20px 0;
+    }
+    .steps li {
+      display: flex;
+      gap: 18px;
+      align-items: flex-start;
+      padding: 18px 22px;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.15s;
+    }
+    .steps li:hover {
+      box-shadow: var(--shadow);
+    }
+    .step-n {
+      width: 28px; height: 28px;
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--blue-pale);
+      border: 1.5px solid var(--blue-mid);
+      border-radius: 50%;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--blue);
+      font-weight: 600;
+      margin-top: 1px;
+    }
+    .step-body { flex: 1; }
+    .step-body strong {
+      display: block;
+      font-size: 15.5px;
+      margin-bottom: 5px;
+      color: var(--ink);
+    }
+    .step-body span {
+      font-size: 14px;
+      color: var(--ink-3);
+      line-height: 1.7;
+    }
+
+    /* ─── SCREENSHOT ──────────────────────────────────────────────── */
+    .shot-wrap {
+      margin: 36px 0 48px;
+    }
+    .shot-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .shot-badge {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: var(--r-sm);
+      background: var(--blue-pale);
+      border: 1px solid var(--blue-mid);
+      color: var(--blue-deep);
+      font-weight: 600;
+    }
+    .shot-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink-2);
+    }
+    .shot-card {
+      background: var(--white);
+      border: 1.5px solid var(--border-2);
+      border-radius: var(--r-xl);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      cursor: zoom-in;
+      transition: box-shadow 0.2s, border-color 0.2s, transform 0.2s;
+    }
+    .shot-card:hover {
+      box-shadow: var(--shadow-lg);
+      border-color: var(--blue-mid);
+      transform: translateY(-3px);
+    }
+    .shot-card img {
+      width: 100%;
+      display: block;
+    }
+    .shot-footer {
+      padding: 14px 20px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .shot-caption {
+      font-size: 13.5px;
+      color: var(--ink-3);
+      line-height: 1.5;
+    }
+    .shot-hint {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-4);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    /* ─── SCREEN GUIDE LIST ───────────────────────────────────────── */
+    .screen-guide {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin: 22px 0;
+    }
+    .guide-row {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      padding: 16px 20px;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      box-shadow: var(--shadow-sm);
+    }
+    .guide-icon {
+      font-size: 20px;
+      flex-shrink: 0;
+      line-height: 1.4;
+    }
+    .guide-body strong {
+      display: block;
+      font-size: 14.5px;
+      color: var(--ink);
+      margin-bottom: 3px;
+    }
+    .guide-body span {
+      font-size: 13.5px;
+      color: var(--ink-3);
+      line-height: 1.65;
+    }
+
+    /* ─── NODE LEGEND ─────────────────────────────────────────────── */
+    .node-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 16px 0 24px;
+    }
+    .node-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      font-size: 13px;
+      color: var(--ink-2);
+      box-shadow: var(--shadow-sm);
+    }
+    .node-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ─── STORY TIMELINE ──────────────────────────────────────────── */
+    .timeline {
+      position: relative;
+      padding-left: 32px;
+      margin: 24px 0;
+    }
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 10px; top: 6px; bottom: 6px;
+      width: 2px;
+      background: linear-gradient(to bottom, var(--blue-mid), var(--surface-2));
+      border-radius: 2px;
+    }
+    .tl-item {
+      position: relative;
+      margin-bottom: 24px;
+    }
+    .tl-item:last-child { margin-bottom: 0; }
+    .tl-dot {
+      position: absolute;
+      left: -28px; top: 6px;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--white);
+      border: 2px solid var(--blue);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .tl-dot::after {
+      content: '';
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--blue);
+    }
+    .tl-head {
+      font-size: 15.5px;
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 4px;
+    }
+    .tl-body {
+      font-size: 14px;
+      color: var(--ink-3);
+      line-height: 1.7;
+    }
+
+    /* ─── DIFF CARDS ──────────────────────────────────────────────── */
+    .diff-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 14px;
+      margin: 24px 0;
+    }
+    .diff-card {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      padding: 22px 22px 18px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: box-shadow 0.15s;
+    }
+    .diff-card:hover { box-shadow: var(--shadow); }
+    .diff-icon {
+      font-size: 26px;
+    }
+    .diff-head {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .diff-text {
+      font-size: 13.5px;
+      color: var(--ink-3);
+      line-height: 1.65;
+    }
+
+    /* ─── TECH SECTION (collapsible feel) ────────────────────────── */
+    .tech-block {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      margin: 20px 0;
+    }
+    .tech-block-hd {
+      padding: 16px 22px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .tech-block-hd-title {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-3);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .tech-block-body {
+      padding: 20px 24px;
+    }
+    pre.cmd {
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.9;
+      color: var(--ink);
+      overflow-x: auto;
+      white-space: pre;
+    }
+    pre.cmd .c { color: var(--ink-4); font-style: italic; }
+    pre.cmd .k { color: var(--blue); font-weight: 600; }
+    pre.cmd .v { color: var(--teal); }
+
+    code {
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--blue-deep);
+      background: var(--blue-pale);
+      padding: 2px 7px;
+      border-radius: 3px;
+      border: 1px solid var(--blue-mid);
+    }
+
+    /* ─── PORT TABLE ──────────────────────────────────────────────── */
+    .tbl {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      background: var(--white);
+      border-radius: var(--r);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      margin: 14px 0;
+    }
+    .tbl th {
+      text-align: left;
+      padding: 10px 16px;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--ink-4);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border-2);
+    }
+    .tbl td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      color: var(--ink-2);
+      vertical-align: middle;
+    }
+    .tbl tr:last-child td { border-bottom: none; }
+    .tbl tr:hover td { background: var(--off-white); }
+    .port-n { font-family: var(--mono); font-size: 14px; color: var(--amber); font-weight: 600; }
+
+    /* ─── FOOTER ──────────────────────────────────────────────────── */
+    .ftr {
+      background: var(--white);
+      border-top: 1px solid var(--border);
+      padding: 32px 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .ftr-brand {
+      font-family: var(--serif);
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--blue-deep);
+    }
+    .ftr-meta {
+      font-size: 12px;
+      color: var(--ink-4);
+      font-family: var(--mono);
+    }
+    .ftr-chips {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .ftr-chip {
+      font-family: var(--mono);
+      font-size: 10px;
+      padding: 3px 9px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      color: var(--ink-4);
+      background: var(--surface);
+    }
+
+    /* ─── LIGHTBOX ────────────────────────────────────────────────── */
+    #lb {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: rgba(16,22,40,0.82);
+      backdrop-filter: blur(12px);
+      cursor: zoom-out;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+    }
+    #lb.open { display: flex; }
+    #lb img {
+      max-width: min(100%, 1280px);
+      max-height: 90vh;
+      border-radius: var(--r-xl);
+      border: 2px solid rgba(255,255,255,0.15);
+      box-shadow: 0 40px 100px rgba(0,0,0,0.6);
+      object-fit: contain;
+    }
+    #lb-close {
+      position: fixed;
+      top: 18px; right: 22px;
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.20);
+      color: #fff;
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      font-size: 17px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+    }
+    #lb-close:hover { background: rgba(255,255,255,0.22); }
+
+    /* ─── SCROLLBAR ───────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--surface); }
+    ::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 3px; }
+
+    /* ─── RESPONSIVE ──────────────────────────────────────────────── */
+    @media (max-width: 920px) {
+      .nav { display: none; }
+      .main { padding: 0 28px 60px; }
+      .ftr { padding: 24px 28px; }
+    }
+    @media (max-width: 600px) {
+      .hero-title { font-size: 30px; }
+      .signal-grid { grid-template-columns: 1fr; }
+      .diff-grid { grid-template-columns: 1fr; }
+      .hdr { padding: 0 18px; }
+      .main { padding: 0 18px 48px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="hdr">
+  <div class="hdr-brand">
+    <div class="hdr-icon">⊢</div>
+    <div>
+      <div class="hdr-name">THOTH-ON</div>
+      <div class="hdr-sub">보험사기탐지 · 사용 안내서</div>
+    </div>
+  </div>
+  <div class="hdr-pill">v0.2 &nbsp;·&nbsp; PoC · 합성 데이터</div>
+</header>
+
+<!-- LAYOUT -->
+<div class="layout">
+
+  <!-- NAV -->
+  <nav class="nav" aria-label="문서 목차">
+    <div class="nav-group">
+      <div class="nav-label">소개</div>
+      <a class="nav-item" href="#intro"><span class="nav-n">01</span>한 문장 소개</a>
+      <a class="nav-item" href="#problem"><span class="nav-n">02</span>어떤 문제를 푸나요?</a>
+      <a class="nav-item" href="#how"><span class="nav-n">03</span>어떻게 찾아내나요?</a>
+    </div>
+    <div class="nav-divider"></div>
+    <div class="nav-group">
+      <div class="nav-label">화면 안내</div>
+      <a class="nav-item" href="#screen1"><span class="nav-n">04</span>의심 사건 목록</a>
+      <a class="nav-item" href="#screen2"><span class="nav-n">05</span>사건 상세 &amp; 설명</a>
+      <a class="nav-item" href="#screen3"><span class="nav-n">06</span>관계 그림</a>
+      <a class="nav-item" href="#screen4"><span class="nav-n">07</span>현황판</a>
+    </div>
+    <div class="nav-divider"></div>
+    <div class="nav-group">
+      <div class="nav-label">실무 &amp; 기술</div>
+      <a class="nav-item" href="#story"><span class="nav-n">08</span>실제 사용 시나리오</a>
+      <a class="nav-item" href="#diff"><span class="nav-n">09</span>무엇이 다른가요?</a>
+      <a class="nav-item" href="#setup"><span class="nav-n">10</span>설치 안내 (기술)</a>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- HERO -->
+    <section class="hero" id="top">
+      <div class="hero-tag-row">
+        <span class="hero-tag">사용 안내서</span>
+        <span class="hero-tag">비전문가용</span>
+        <span class="hero-tag">v0.2 PoC</span>
+      </div>
+      <h1 class="hero-title">보험 조직 사기를<br/><em>관계로 꿰뚫는</em> 시스템</h1>
+      <p class="hero-lead">
+        THOTH-ON은 <strong>여러 사람이 짜고 치는 보험 사기</strong>를 찾아내고,
+        왜 의심스러운지 조사관이 바로 이해할 수 있는 <strong>한국어 설명</strong>을 자동으로 만들어 줍니다.
+      </p>
+      <div class="hero-pills">
+        <div class="hero-pill"><span class="dot dot-blue"></span>조직 사기 자동 탐지</div>
+        <div class="hero-pill"><span class="dot dot-teal"></span>한국어 의심 근거 설명</div>
+        <div class="hero-pill"><span class="dot dot-amber"></span>폐쇄망(인터넷 없이) 작동</div>
+        <div class="hero-pill"><span class="dot dot-green"></span>개인정보 암호화 보호</div>
+      </div>
+    </section>
+
+    <!-- 01 한 문장 소개 -->
+    <section class="section" id="intro">
+      <div class="section-hd">
+        <span class="section-n">01</span>
+        <h2 class="section-title">한 문장 소개</h2>
+      </div>
+
+      <div class="intro-card">
+        <div class="intro-card-label">THOTH-ON이란?</div>
+        <div class="intro-card-text">
+          THOTH-ON은 보험금을 노린 <strong>'짜고 친' 조직 사기</strong>를 찾아내고,
+          왜 의심스러운지 <strong>한국어로 설명</strong>해 주는 시스템입니다.
+        </div>
+      </div>
+
+      <p>
+        기존 보험 심사 시스템은 청구 한 건씩 따로따로 검토합니다. 그러다 보니 여러 사람이 짜고 친 사기는 건건이 보면 평범해 보여서 그냥 넘어가기 쉽습니다.
+      </p>
+      <p>
+        THOTH-ON은 수백 건의 청구 데이터를 <strong>관계 지도</strong>로 이어 붙여, 겉으로는 드러나지 않는 공모 패턴을 자동으로 찾습니다. 조사관은 "왜 이 케이스가 의심스러운가"를 시스템이 만들어 준 한국어 설명으로 바로 파악하고 판단을 내릴 수 있습니다.
+      </p>
+
+      <div class="callout info">
+        <strong>이 안내서는 누구를 위한 것인가요?</strong><br/>
+        보험사 임원, 조사 담당자(SIU), 의사결정자 — IT 전문 지식 없이도 읽을 수 있도록 쉬운 말로 썼습니다. 기술 설치 안내는 맨 뒤 섹션 10에 따로 정리했습니다.
+      </div>
+    </section>
+
+    <!-- 02 어떤 문제를 푸나요? -->
+    <section class="section" id="problem">
+      <div class="section-hd">
+        <span class="section-n">02</span>
+        <h2 class="section-title">어떤 문제를 푸나요?</h2>
+      </div>
+
+      <p>
+        보험 사기는 점점 <strong>조직화</strong>되고 있습니다. 한 사람이 혼자 허위 청구를 넣는 시대는 지났습니다. 요즘 사기는 여러 사람이 역할을 나눠, 서로를 도와 가며 반복적으로 사고를 꾸밉니다.
+      </p>
+
+      <div class="signal-grid">
+        <div class="sig-card">
+          <span class="sig-icon">🚗</span>
+          <div class="sig-title">고의 교통사고 (crash-for-cash)</div>
+          <div class="sig-desc">보험금을 노리고 일부러 사고를 냅니다. 가담자들이 번갈아 가며 사고를 일으키고 서로의 목격자가 되어 줍니다.</div>
+          <span class="sig-badge hi">고위험</span>
+        </div>
+        <div class="sig-card">
+          <span class="sig-icon">🔧</span>
+          <div class="sig-title">가짜 수리비 청구</div>
+          <div class="sig-desc">실제로 수리하지 않거나 과장된 수리비를 특정 정비소와 짜고 청구합니다. 특정 정비소에 청구가 비정상적으로 몰립니다.</div>
+          <span class="sig-badge mid">중위험</span>
+        </div>
+        <div class="sig-card">
+          <span class="sig-icon">🏦</span>
+          <div class="sig-title">계좌 공유 조직</div>
+          <div class="sig-desc">여러 사람이 한 계좌로 보험금을 받습니다. 따로따로 청구해도 돈이 모이는 계좌가 같으면 공모 조직일 가능성이 높습니다.</div>
+          <span class="sig-badge hi">고위험</span>
+        </div>
+      </div>
+
+      <h3>왜 기존 방법으로는 못 잡나요?</h3>
+      <p>
+        사건을 <strong>하나씩 따로 보면</strong> 각각은 정상처럼 보입니다. 금액도 평범하고, 사고 경위도 자연스럽습니다. 그래서 지금까지는 이런 사기를 놓쳐 왔습니다.
+      </p>
+
+      <div class="analogy">
+        <span class="analogy-icon">💡</span>
+        <div class="analogy-body">
+          <strong>비유:</strong> 흩어진 점만 보면 아무 그림도 보이지 않습니다. 하지만 그 점들을 선으로 이으면 그림이 드러납니다. THOTH-ON은 보험 청구·사람·계좌·정비소를 점으로, 그 사이의 관계를 선으로 이어 '조직 사기 그림'을 그려 냅니다.
+        </div>
+      </div>
+
+      <p>
+        THOTH-ON은 수천 건의 청구 데이터 전체를 <strong>하나의 거대한 관계 지도</strong>로 만들어 "이 사람들이 서로 어떻게 엮여 있는가"를 한눈에 파악합니다. 이 방식은 개별 건 심사로는 절대 볼 수 없는 패턴을 보여 줍니다.
+      </p>
+    </section>
+
+    <!-- 03 어떻게 찾아내나요? -->
+    <section class="section" id="how">
+      <div class="section-hd">
+        <span class="section-n">03</span>
+        <h2 class="section-title">어떻게 찾아내나요?</h2>
+      </div>
+
+      <p>
+        THOTH-ON은 세 가지 핵심 신호를 탐지합니다. 신호가 하나라도 감지되면 점수가 올라가고, 여러 신호가 겹칠수록 위험 점수는 더 높아집니다.
+      </p>
+
+      <div class="signal-grid">
+        <div class="sig-card">
+          <span class="sig-icon">🔗</span>
+          <div class="sig-title">신호 ① 계좌·전화 공유</div>
+          <div class="sig-desc">서로 다른 사람이 같은 계좌나 전화번호를 공유하면 의심스럽습니다. 가족도 아닌데 보험금 입금 계좌가 같다면 공모 조직일 가능성이 높습니다.</div>
+          <span class="sig-badge hi">강한 신호</span>
+        </div>
+        <div class="sig-card">
+          <span class="sig-icon">🏪</span>
+          <div class="sig-title">신호 ② 특정 장소 집중</div>
+          <div class="sig-desc">같은 정비소나 병원에 청구가 비정상적으로 몰립니다. 짜고 친 협력 업체일 가능성을 나타냅니다.</div>
+          <span class="sig-badge mid">중간 신호</span>
+        </div>
+        <div class="sig-card">
+          <span class="sig-icon">👥</span>
+          <div class="sig-title">신호 ③ 번갈아 목격</div>
+          <div class="sig-desc">A가 B의 사고를 목격하고, B가 A의 사고를 목격합니다. 실제 우연의 일치라기에는 너무 규칙적입니다. 공모자끼리 서로 보증인이 되어 주는 패턴입니다.</div>
+          <span class="sig-badge hi">강한 신호</span>
+        </div>
+      </div>
+
+      <h3>위험 점수 (0~100점)</h3>
+      <p>
+        위 신호들의 개수와 강도를 합산해 <strong>위험 점수</strong>를 계산합니다. 점수가 높을수록 먼저 조사해야 할 사건입니다.
+      </p>
+
+      <div class="score-bar-wrap">
+        <div class="score-bar-label">
+          <span>0점 · 정상</span>
+          <span>50점 · 주의</span>
+          <span>100점 · 매우 의심</span>
+        </div>
+        <div class="score-bar-track"></div>
+        <div class="score-bar-zones">
+          <span class="zone-chip low">0~30점 — 낮음 (일반 청구)</span>
+          <span class="zone-chip mid">31~69점 — 주의 (추가 확인 권장)</span>
+          <span class="zone-chip high">70~100점 — 고위험 (즉시 조사)</span>
+        </div>
+      </div>
+
+      <div class="analogy">
+        <span class="analogy-icon">🗺️</span>
+        <div class="analogy-body">
+          <strong>지식그래프란?</strong> 사람·사건·통장·차·정비소를 점(노드)으로 표시하고, 그 사이의 관계를 선(엣지)으로 이은 <strong>거대한 관계 지도</strong>입니다. 이 지도를 컴퓨터가 분석하면 "이 사람들이 한 조직"임을 자동으로 알아낼 수 있습니다.
+        </div>
+      </div>
+
+      <h3>설명 가능한 AI — 근거 있는 말만 합니다</h3>
+      <p>
+        점수만 내고 끝내지 않습니다. THOTH-ON은 "왜 이 케이스가 위험한가"를 관계 지도에서 실제로 확인된 사실만을 근거로 한국어 문장으로 설명합니다. AI가 없는 사실을 지어내지 못하도록 <strong>환각가드(HallucinGuard)</strong>라는 안전장치가 모든 설명문을 검증합니다.
+      </p>
+    </section>
+
+    <!-- 04 화면 1 — 의심 사건 목록 -->
+    <section class="section" id="screen1">
+      <div class="section-hd">
+        <span class="section-n">04</span>
+        <h2 class="section-title">화면 1 — 의심 사건 목록</h2>
+      </div>
+
+      <p>시스템을 열면 가장 먼저 보이는 화면입니다. 탐지된 의심 사건들이 <strong>위험 점수가 높은 순서</strong>로 줄지어 표시됩니다. 조사관은 이 목록을 훑어보며 오늘 가장 먼저 살펴볼 사건을 고릅니다.</p>
+
+      <div class="shot-wrap">
+        <div class="shot-label">
+          <span class="shot-badge">화면 01</span>
+          <span class="shot-title">의심 사건 목록 (케이스 큐)</span>
+        </div>
+        <div class="shot-card" onclick="openLb('screenshots/01_queue.png')">
+          <img src="screenshots/01_queue.png" alt="의심 사건 목록 화면 — 위험 점수순 사건 리스트" loading="lazy" />
+          <div class="shot-footer">
+            <div class="shot-caption">빨간 숫자가 위험 점수입니다. 숫자가 클수록 먼저 확인해야 합니다. 우측 빈 영역은 사건을 클릭하면 상세 내용이 펼쳐지는 공간입니다.</div>
+            <div class="shot-hint">클릭하여 확대 ↗</div>
+          </div>
+        </div>
+      </div>
+
+      <h3>이 화면에서 무엇을 보면 되나요?</h3>
+      <div class="screen-guide">
+        <div class="guide-row">
+          <div class="guide-icon">🔢</div>
+          <div class="guide-body">
+            <strong>빨간 숫자 (위험 점수)</strong>
+            <span>100에 가까울수록 여러 의심 신호가 겹친 고위험 사건입니다. 점수 순으로 정렬되어 있어, 목록 위쪽부터 확인하면 됩니다.</span>
+          </div>
+        </div>
+        <div class="guide-row">
+          <div class="guide-icon">🏷️</div>
+          <div class="guide-body">
+            <strong>신호 태그 (예: RING-RING-0, SHARED ACCOUNT, CROSS WITNESS)</strong>
+            <span>각 사건에 어떤 의심 신호가 포착되었는지 작은 태그로 표시됩니다. 태그가 많을수록 신호도 여러 가지입니다.</span>
+          </div>
+        </div>
+        <div class="guide-row">
+          <div class="guide-icon">📊</div>
+          <div class="guide-body">
+            <strong>임계치 슬라이더</strong>
+            <span>화면 위쪽의 숫자 조절 바입니다. 이 값보다 점수가 낮은 사건은 목록에서 숨겨집니다. 점수 기준을 높이면 가장 위험한 사건만 볼 수 있습니다.</span>
+          </div>
+        </div>
+        <div class="guide-row">
+          <div class="guide-icon">🔍</div>
+          <div class="guide-body">
+            <strong>상태 필터 (전체 / 미배정 / 조사중 / 사기 / 정상)</strong>
+            <span>아직 아무도 담당하지 않은 사건, 현재 조사 중인 사건 등을 따로 골라 볼 수 있습니다.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 화면 2 — 사건 상세 -->
+    <section class="section" id="screen2">
+      <div class="section-hd">
+        <span class="section-n">05</span>
+        <h2 class="section-title">화면 2 — 사건 상세 &amp; 설명</h2>
+      </div>
+
+      <p>목록에서 사건을 클릭하면 이 화면이 열립니다. 위험 점수, 어떤 신호가 포착됐는지, 그리고 가장 중요한 <strong>"왜 의심스러운가"에 대한 한국어 설명문</strong>이 한 화면에 모여 있습니다.</p>
+
+      <div class="shot-wrap">
+        <div class="shot-label">
+          <span class="shot-badge">화면 02</span>
+          <span class="shot-title">사건 상세 &amp; 한국어 설명문</span>
+        </div>
+        <div class="shot-card" onclick="openLb('screenshots/02_detail.png')">
+          <img src="screenshots/02_detail.png" alt="사건 상세 화면 — 위험 점수, 신호 분해, 한국어 설명문" loading="lazy" />
+          <div class="shot-footer">
+            <div class="shot-caption">왼쪽에 사건 목록, 오른쪽에 선택한 사건의 상세 정보가 펼쳐집니다. 점수·신호 카드·한국어 설명문·판정 버튼이 위에서 아래로 이어집니다.</div>
+            <div class="shot-hint">클릭하여 확대 ↗</div>
+          </div>
+        </div>
+      </div>
+
+      <h3>이 화면에서 무엇을 보면 되나요?</h3>
+      <div class="screen-guide">
+        <div class="guide-row">
+          <div class="guide-icon">💯</div>
+          <div class="guide-body">
+            <strong>위험 점수 (0~100)</strong>
+            <span>화면 상단에 크게 표시됩니다. 100점에 가까울수록 여러 의심 신호가 동시에 발화한 상태입니다.</span>
+          </div>
+        </div>
+        <div class="guide-row">
+          <div class="guide-icon">📋</div>
+          <div class="guide-body">
+            <strong>신호 카드 (SHARED_ACCOUNT, CROSS_WITNESS 등)</strong>
+            <span>어떤 의심 신호가 발동했는지, 각 신호가 점수에 얼마나 기여했는지 카드로 분해해 보여 줍니다. 가중치 숫자가 클수록 점수에 더 큰 영향을 준 신호입니다.</span>
+          </div>
+        </div>
+        <div class="guide-row">
+          <div class="guide-icon">📝</div>
+          <div class="guide-body">
+            <strong>한국어 설명문 (소명문)</strong>
+            <span>시스템이 자동으로 작성한 설명 문단입니다. "고객 A와 고객 B가 같은 계좌를 공유하며, 서로의 사고를 번갈아 목격한 기록이 있습니다"와 같이, 실제 데이터에서 발견한 사실만을 담아 씁니다.</span>
+          </div>
+        </div>
+        <div class="guide-row">
+          <div class="guide-icon">🛡️</div>
+          <div class="guide-body">
+            <strong>환각가드 (HallucinGuard) — 설명의 신뢰도 검증</strong>
+            <span>AI는 가끔 실제 데이터에 없는 사실을 지어내기도 합니다. 환각가드는 설명문이 실제 관계 지도에 존재하는 사실만 담고 있는지 자동으로 확인합니다. 검증을 통과한 설명만 화면에 표시됩니다. 쉽게 말하면, <strong>"AI가 없는 말을 지어내지 못하게 막는 안전장치"</strong>입니다.</span>
+          </div>
+        </div>
+        <div class="guide-row">
+          <div class="guide-icon">⚖️</div>
+          <div class="guide-body">
+            <strong>판정 버튼 (사기 확정 / 정상 처리 / 보류)</strong>
+            <span>설명문을 읽고 판단을 내린 뒤 버튼을 누릅니다. 판정 결과는 저장되어 현황판에 반영되고, 나중에 시스템이 더 정확해지는 데 활용됩니다.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 화면 3 — 관계 그림 -->
+    <section class="section" id="screen3">
+      <div class="section-hd">
+        <span class="section-n">06</span>
+        <h2 class="section-title">화면 3 — 관계 그림 (지식그래프)</h2>
+      </div>
+
+      <p>상단 탭에서 <strong>"관계망"</strong>을 누르면 이 화면이 나옵니다. 선택한 사람이 누구·무엇과 어떻게 연결되어 있는지를 <strong>점과 선의 그림</strong>으로 직접 보여 줍니다. 조직 사기 탐지의 핵심 — 숨겨진 연결을 눈으로 확인하는 화면입니다.</p>
+
+      <div class="shot-wrap">
+        <div class="shot-label">
+          <span class="shot-badge">화면 03</span>
+          <span class="shot-title">관계 그림 (지식그래프)</span>
+        </div>
+        <div class="shot-card" onclick="openLb('screenshots/03_graph.png')">
+          <img src="screenshots/03_graph.png" alt="관계망 탐색 화면 — 사람·사건·계좌가 선으로 연결된 그림, 빨간 마름모가 의심 인물" loading="lazy" />
+          <div class="shot-footer">
+            <div class="shot-caption">빨간 마름모(◇)가 의심 인물입니다. 점들을 잇는 선이 관계를 나타냅니다. 가운데 모이는 점이 많을수록 더 많이 얽혀 있는 조직입니다.</div>
+            <div class="shot-hint">클릭하여 확대 ↗</div>
+          </div>
+        </div>
+      </div>
+
+      <h3>그림 속 색깔이 뜻하는 것</h3>
+      <div class="node-legend">
+        <div class="node-chip"><span class="node-dot" style="background:#a78bfa;"></span>사람 (고객)</div>
+        <div class="node-chip"><span class="node-dot" style="background:#34d399;"></span>은행 계좌</div>
+        <div class="node-chip"><span class="node-dot" style="background:#f97316;"></span>정비소</div>
+        <div class="node-chip"><span class="node-dot" style="background:#ec4899;"></span>병원</div>
+        <div class="node-chip"><span class="node-dot" style="background:#60a5fa;"></span>보험 청구</div>
+        <div class="node-chip"><span class="node-dot" style="background:#ef4444;"></span>의심 / 조직 구성원</div>
+      </div>
+
+      <div class="screen-guide">
+        <div class="guide-row">
+          <div class="guide-icon">🔴</div>
+          <div class="guide-body">
+            <strong>빨간 마름모(◇) = 의심 인물</strong>
+            <span>시스템이 사기 조직 구성원으로 분류한 사람입니다. 여러 빨간 마름모가 서로 연결되어 있으면, 그 사람들이 한 조직일 가능성이 높습니다.</span>
+          </div>
+        </div>
+        <div class="guide-row">
+          <div class="guide-icon">↔️</div>
+          <div class="guide-body">
+            <strong>선이 하나로 모이는 곳 = 공유 자원</strong>
+            <span>여러 사람이 같은 점(계좌·정비소)으로 연결되어 있다면, 그 점이 공모 조직의 '집결 지점'일 수 있습니다.</span>
+          </div>
+        </div>
+        <div class="guide-row">
+          <div class="guide-icon">🔒</div>
+          <div class="guide-body">
+            <strong>개인정보는 가려집니다</strong>
+            <span>그림에 표시되는 식별자는 실제 이름 대신 암호화된 약어(예: 58d***4c)로 표시됩니다. 실명이나 주민번호는 화면에 절대 나오지 않습니다.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <strong>그림 조작 방법:</strong> 노드(점)를 마우스로 드래그해 레이아웃을 바꿀 수 있습니다. 마우스 스크롤로 확대·축소가 됩니다. 상단 "맞춤" 버튼을 누르면 전체 그림이 화면에 맞게 조정됩니다.
+      </div>
+    </section>
+
+    <!-- 07 화면 4 — 현황판 -->
+    <section class="section" id="screen4">
+      <div class="section-hd">
+        <span class="section-n">07</span>
+        <h2 class="section-title">화면 4 — 현황판 (KPI 대시보드)</h2>
+      </div>
+
+      <p>상단 탭에서 <strong>"KPI"</strong>를 누르면 나오는 경영 보고용 화면입니다. 전체 탐지 현황을 숫자와 차트로 요약해 보여 줍니다. 보험사 임원이나 팀장이 "시스템이 얼마나 잘 작동하고 있는가"를 한눈에 파악할 때 사용합니다.</p>
+
+      <div class="callout warn">
+        <strong>수치 안내:</strong> 현재 화면에 표시된 모든 수치는 실제 보험 데이터가 아닌 <strong>합성(가짜) 시범 데이터</strong> 기준입니다. 실제 운영 환경에서는 수치가 크게 달라질 수 있습니다.
+      </div>
+
+      <div class="shot-wrap">
+        <div class="shot-label">
+          <span class="shot-badge">화면 04</span>
+          <span class="shot-title">현황판 (KPI 대시보드)</span>
+        </div>
+        <div class="shot-card" onclick="openLb('screenshots/04_kpi.png')">
+          <img src="screenshots/04_kpi.png" alt="KPI 대시보드 — 총 사건 수, 고위험 건수, 의심 조직 수, 처리 현황 막대 차트" loading="lazy" />
+          <div class="shot-footer">
+            <div class="shot-caption">큰 숫자 카드들이 핵심 지표입니다. 아래 막대 차트는 사건 처리 파이프라인 현황을 보여 줍니다. 모든 수치는 합성 시범 데이터 기준입니다.</div>
+            <div class="shot-hint">클릭하여 확대 ↗</div>
+          </div>
+        </div>
+      </div>
+
+      <h3>주요 지표 설명</h3>
+      <div class="screen-guide">
+        <div class="guide-row">
+          <div class="guide-icon">📁</div>
+          <div class="guide-body">
+            <strong>총 케이스 / 고위험 케이스</strong>
+            <span>시스템이 분석한 전체 청구 건수와, 그 중 위험 점수가 임계치를 넘어선 건수입니다. 탐지 비율(고위험 ÷ 총 케이스)로 사기 의심 밀도를 파악합니다.</span>
+          </div>
+        </div>
+        <div class="guide-row">
+          <div class="guide-icon">🔗</div>
+          <div class="guide-body">
+            <strong>의심 조직(링) 수</strong>
+            <span>공모 조직으로 묶인 집단의 수입니다. 한 '링'은 서로 연결된 사기 의심 구성원 전체를 가리킵니다.</span>
+          </div>
+        </div>
+        <div class="guide-row">
+          <div class="guide-icon">📈</div>
+          <div class="guide-body">
+            <strong>점수 분리도</strong>
+            <span>진짜 의심 사건과 일반 사건의 점수가 얼마나 멀리 떨어져 있는가를 나타냅니다. 이 값이 높을수록 시스템이 두 집단을 잘 구별하고 있다는 뜻입니다.</span>
+          </div>
+        </div>
+        <div class="guide-row">
+          <div class="guide-icon">📊</div>
+          <div class="guide-body">
+            <strong>상태 분포 막대 차트</strong>
+            <span>미배정 / 조사중 / 사기 확정 / 정상 / 보류 건수를 막대로 보여 줍니다. 미배정이 많으면 조사 인력이 더 필요하다는 신호입니다.</span>
+          </div>
+        </div>
+        <div class="guide-row">
+          <div class="guide-icon">💰</div>
+          <div class="guide-body">
+            <strong>일일 처리량 추정 / 절감액 추정</strong>
+            <span>조사관 1명이 하루 처리할 수 있는 건수 추정치와, 사기 확정 시 절감되는 금액 추정치입니다. <strong>합성 데이터 PoC 기준의 추정치</strong>이며 실제 운영 수치를 보장하지 않습니다.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 실제 사용 시나리오 -->
+    <section class="section" id="story">
+      <div class="section-hd">
+        <span class="section-n">08</span>
+        <h2 class="section-title">실제로 이렇게 씁니다</h2>
+      </div>
+
+      <p>보험사 조사관 김 대리가 아침에 시스템을 열었습니다. 이후 흐름을 따라가 봅니다.</p>
+
+      <div class="timeline">
+        <div class="tl-item">
+          <div class="tl-dot"></div>
+          <div class="tl-head">목록을 열어 점수 높은 사건을 고릅니다</div>
+          <div class="tl-body">김 대리는 오늘 처리할 사건을 찾기 위해 '미배정' 필터를 켭니다. 점수 100점짜리 사건 여러 건이 보입니다. 가장 위에 있는 CASE-CUST-05001을 클릭합니다.</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-dot"></div>
+          <div class="tl-head">한국어 설명문으로 왜 의심인지 바로 파악합니다</div>
+          <div class="tl-body">오른쪽 패널에 설명문이 펼쳐집니다. "고객 CUST-05001은 고객 CUST-05010, CUST-05011과 동일 계좌를 공유하며, 서로의 사고를 번갈아 목격한 기록이 있습니다." — 5초 만에 의심 이유를 파악했습니다.</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-dot"></div>
+          <div class="tl-head">관계 그림으로 엮인 무리를 확인합니다</div>
+          <div class="tl-body">'관계망' 탭을 누릅니다. CUST-05001을 중심으로 여러 빨간 마름모가 같은 계좌 점으로 모여 있는 그림이 보입니다. 한 조직임이 한눈에 드러납니다.</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-dot"></div>
+          <div class="tl-head">'사기 확정' 또는 '보류' 버튼을 누릅니다</div>
+          <div class="tl-body">설명문과 그림을 검토한 뒤 충분한 근거가 있다고 판단하면 '사기 확정'을 누릅니다. 더 확인이 필요하면 '보류'를 선택하고 메모를 남깁니다.</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-dot"></div>
+          <div class="tl-head">판정이 쌓여 시스템이 더 똑똑해집니다</div>
+          <div class="tl-body">김 대리의 판정 결과는 현황판에 반영됩니다. 사기 확정 / 정상 처리 레이블이 쌓일수록 시스템의 탐지 정확도가 높아집니다.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 무엇이 다른가요? -->
+    <section class="section" id="diff">
+      <div class="section-hd">
+        <span class="section-n">09</span>
+        <h2 class="section-title">무엇이 다른가요?</h2>
+      </div>
+
+      <p>경영진이 가장 많이 묻는 질문입니다. "기존 시스템과 무슨 차이가 있나요?"</p>
+
+      <div class="diff-grid">
+        <div class="diff-card">
+          <span class="diff-icon">🔒</span>
+          <div class="diff-head">인터넷 없이 작동합니다</div>
+          <div class="diff-text">보험사 내부 전용망에서 완전히 독립 작동합니다. 고객 개인정보가 외부 클라우드나 인터넷으로 나가지 않습니다. 금융 규제 환경에서 안심하고 쓸 수 있습니다.</div>
+        </div>
+        <div class="diff-card">
+          <span class="diff-icon">💬</span>
+          <div class="diff-head">"왜 의심인지"를 사람이 이해하는 말로 설명합니다</div>
+          <div class="diff-text">숫자 점수만 내놓지 않습니다. 어떤 관계가 얽혀 있고, 무슨 패턴이 발견됐는지 한국어 문장으로 설명해 줍니다. 조사·소명서 작성이 빠릅니다.</div>
+        </div>
+        <div class="diff-card">
+          <span class="diff-icon">🕸️</span>
+          <div class="diff-head">관계망 전체를 한꺼번에 봅니다</div>
+          <div class="diff-text">개별 청구 건 하나씩 심사하는 방식에서 벗어나, 수천 건의 청구 데이터를 한 장의 관계 지도로 만들어 조직 전체를 발견합니다.</div>
+        </div>
+        <div class="diff-card">
+          <span class="diff-icon">🛡️</span>
+          <div class="diff-head">개인정보를 암호로 가려 저장합니다</div>
+          <div class="diff-text">이름·주민번호·계좌번호는 시스템에 저장될 때 SHA-256 방식으로 암호화됩니다. 화면에는 짧은 암호 코드만 표시됩니다.</div>
+        </div>
+        <div class="diff-card">
+          <span class="diff-icon">📋</span>
+          <div class="diff-head">누가 무엇을 봤는지 모두 기록합니다</div>
+          <div class="diff-text">케이스 조회, 판정 변경 등 모든 행동이 감사 기록에 남습니다. 나중에 "누가 언제 이 사건을 보고 어떤 판정을 내렸는가"를 추적할 수 있습니다.</div>
+        </div>
+        <div class="diff-card">
+          <span class="diff-icon">🤖</span>
+          <div class="diff-head">AI가 지어낸 말을 걸러 냅니다</div>
+          <div class="diff-text">환각가드(HallucinGuard)가 AI 설명문을 검증합니다. 실제 데이터에 없는 내용을 AI가 꾸며냈다면 그 설명은 화면에 표시되지 않습니다.</div>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <strong>성능 수치 안내:</strong> 탐지율, 정밀도 등의 수치는 현재 <strong>합성(가짜) 시범 데이터 기준</strong>으로 측정된 것입니다. 실제 보험사 데이터 환경에서의 성능은 별도 검증이 필요합니다.
+      </div>
+    </section>
+
+    <!-- 10 설치 안내 (기술 담당자용) -->
+    <section class="section" id="setup">
+      <div class="section-hd">
+        <span class="section-n">10</span>
+        <h2 class="section-title">설치 안내 <small style="font-size:16px;font-weight:400;color:var(--ink-3);">— 기술 담당자용</small></h2>
+      </div>
+
+      <div class="callout warn">
+        <strong>이 섹션은 IT 기술 담당자용입니다.</strong> 실제 시스템 설치·실행을 담당하는 분이 아니라면 이 부분은 건너뛰셔도 됩니다.
+      </div>
+
+      <p>사전 요구사항: Python 3.10+, Docker Desktop (GDS 플러그인 포함), Node.js 18+, make</p>
+
+      <div class="tech-block">
+        <div class="tech-block-hd"><span class="tech-block-hd-title">1 — 환경 변수 설정</span></div>
+        <div class="tech-block-body">
+          <pre class="cmd"><span class="k">cp</span> .env.example .env
+<span class="c"># .env 파일을 열어 NEO4J_PASSWORD 등을 설정합니다</span></pre>
+        </div>
+      </div>
+
+      <div class="tech-block">
+        <div class="tech-block-hd"><span class="tech-block-hd-title">2 — Python 환경 설치</span></div>
+        <div class="tech-block-body">
+          <pre class="cmd"><span class="k">make</span> install
+<span class="c"># Python 가상환경 생성 + 의존성 패키지 설치</span></pre>
+        </div>
+      </div>
+
+      <div class="tech-block">
+        <div class="tech-block-hd"><span class="tech-block-hd-title">3 — 데이터베이스 기동</span></div>
+        <div class="tech-block-body">
+          <pre class="cmd"><span class="k">make</span> up
+<span class="c"># Neo4j 5 + GDS 컨테이너 기동 (Docker)</span></pre>
+        </div>
+      </div>
+
+      <div class="tech-block">
+        <div class="tech-block-hd"><span class="tech-block-hd-title">4 — 스키마 초기화 + 시범 데이터 생성·적재</span></div>
+        <div class="tech-block-body">
+          <pre class="cmd"><span class="k">make</span> schema   <span class="c"># 제약 조건·인덱스 생성</span>
+<span class="k">make</span> synth    <span class="c"># 합성 시범 데이터 생성 (사기 조직 패턴 포함)</span>
+<span class="k">make</span> seed     <span class="c"># 데이터베이스에 적재 (가명처리 포함)</span></pre>
+        </div>
+      </div>
+
+      <div class="tech-block">
+        <div class="tech-block-hd"><span class="tech-block-hd-title">5 — API 서버 기동</span></div>
+        <div class="tech-block-body">
+          <pre class="cmd"><span class="k">make</span> serve
+<span class="c"># FastAPI 서버 → http://localhost:8468/docs (OpenAPI UI)</span></pre>
+        </div>
+      </div>
+
+      <div class="tech-block">
+        <div class="tech-block-hd"><span class="tech-block-hd-title">6 — 콘솔 기동</span></div>
+        <div class="tech-block-body">
+          <pre class="cmd"><span class="k">cd</span> console &amp;&amp; <span class="k">npm</span> run dev
+<span class="c"># React 개발 서버 → http://localhost:5847</span></pre>
+        </div>
+      </div>
+
+      <h3>포트 안내</h3>
+      <table class="tbl">
+        <thead>
+          <tr><th>서비스</th><th>포트</th><th>접속 주소</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>조사관 콘솔 (화면)</td>
+            <td><span class="port-n">5847</span></td>
+            <td><code>http://localhost:5847</code></td>
+          </tr>
+          <tr>
+            <td>API 서버</td>
+            <td><span class="port-n">8468</span></td>
+            <td><code>http://localhost:8468/docs</code></td>
+          </tr>
+          <tr>
+            <td>데이터베이스 관리 화면</td>
+            <td><span class="port-n">7475</span></td>
+            <td><code>http://localhost:7475</code></td>
+          </tr>
+          <tr>
+            <td>데이터베이스 연결 (Bolt)</td>
+            <td><span class="port-n">7688</span></td>
+            <td><code>bolt://localhost:7688</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>주요 API 엔드포인트</h3>
+      <table class="tbl">
+        <thead>
+          <tr><th>경로</th><th>설명</th><th>인증 헤더</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>GET /cases</code></td>
+            <td>의심 사건 목록 (min_score, status 필터 지원)</td>
+            <td rowspan="4" style="vertical-align:middle;font-size:13px;color:var(--ink-3);">
+              <code>X-Role:</code><br/>
+              FRAUD_ANALYST<br/>
+              SIU_MANAGER<br/>
+              ADMIN<br/>
+              READONLY
+            </td>
+          </tr>
+          <tr>
+            <td><code>GET /cases/{id}</code></td>
+            <td>사건 상세: 점수 + 신호 + 설명문 + 환각가드 결과</td>
+          </tr>
+          <tr>
+            <td><code>GET /graph/customer/{id}</code></td>
+            <td>고객 주변 관계망 (vis-network용 JSON)</td>
+          </tr>
+          <tr>
+            <td><code>GET /kpi</code></td>
+            <td>현황판 집계 데이터</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout danger">
+        <strong>실 운영 배포 전 반드시 확인하세요:</strong> PoC 기본 설정(.env.example)에는 단순 비밀번호가 포함되어 있습니다. 실제 운영 배포 시 Neo4j 비밀번호, API 시크릿 키, TLS/HTTPS 설정을 보안 강화 후 적용하십시오.
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- FOOTER -->
+<footer class="ftr">
+  <div>
+    <div class="ftr-brand">THOTH-ON</div>
+    <div class="ftr-meta" style="margin-top:5px;">보험 조직 사기 탐지 시스템 · OntoCraft</div>
+  </div>
+  <div class="ftr-chips">
+    <span class="ftr-chip">v0.2 PoC</span>
+    <span class="ftr-chip">합성 데이터</span>
+    <span class="ftr-chip">온프레미스</span>
+  </div>
+  <div class="ftr-meta">THOTH-ON · OntoCraft · v0.2 (PoC 시범)</div>
+</footer>
+
+<!-- LIGHTBOX -->
+<div id="lb" role="dialog" aria-label="이미지 확대">
+  <button id="lb-close" onclick="closeLb()" aria-label="닫기">✕</button>
+  <img id="lb-img" src="" alt="" />
+</div>
+
+<script>
+  /* LIGHTBOX */
+  function openLb(src) {
+    const el = document.getElementById('lb');
+    document.getElementById('lb-img').src = src;
+    el.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeLb() {
+    document.getElementById('lb').classList.remove('open');
+    document.body.style.overflow = '';
+    setTimeout(() => { document.getElementById('lb-img').src = ''; }, 180);
+  }
+  document.getElementById('lb').addEventListener('click', function(e) {
+    if (e.target === this) closeLb();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeLb();
+  });
+
+  /* ACTIVE NAV */
+  const sections = document.querySelectorAll('.section');
+  const navItems = document.querySelectorAll('.nav .nav-item');
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(en => {
+      if (en.isIntersecting) {
+        const id = en.target.id;
+        navItems.forEach(a => {
+          a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+        });
+      }
+    });
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  sections.forEach(s => { if (s.id) io.observe(s); });
+</script>
+
+</body>
+</html>
