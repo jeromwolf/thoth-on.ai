@@ -5,48 +5,63 @@ import { GraphView } from './components/GraphView'
 import { KpiDashboard } from './components/KpiDashboard'
 import type { CaseListItem, View } from './types'
 
-// Icon SVG inline — minimal
+const X_ROLE = (import.meta.env.VITE_X_ROLE as string | undefined) ?? 'FRAUD_ANALYST'
+const ROLE_LABELS: Record<string, string> = {
+  FRAUD_ANALYST: '사기분석관',
+  SIU_LEAD: 'SIU 팀장',
+  ADMIN: '관리자',
+}
+
 function IconQueue() {
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <rect x="2" y="3" width="12" height="2" rx="1" />
-      <rect x="2" y="7" width="12" height="2" rx="1" />
-      <rect x="2" y="11" width="7" height="2" rx="1" />
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <rect x="2" y="3" width="12" height="2.4" rx="1.2" />
+      <rect x="2" y="7" width="12" height="2.4" rx="1.2" />
+      <rect x="2" y="11" width="7" height="2.4" rx="1.2" />
     </svg>
   )
 }
 
 function IconGraph() {
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <circle cx="8" cy="8" r="2" />
-      <circle cx="2" cy="4" r="1.5" />
-      <circle cx="14" cy="4" r="1.5" />
-      <circle cx="3" cy="13" r="1.5" />
-      <circle cx="13" cy="13" r="1.5" />
-      <line x1="6.3" y1="6.7" x2="3.4" y2="5.2" />
-      <line x1="9.7" y1="6.7" x2="12.6" y2="5.2" />
-      <line x1="6.6" y1="9.6" x2="4.1" y2="11.8" />
-      <line x1="9.4" y1="9.6" x2="11.9" y2="11.8" />
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <circle cx="8" cy="8" r="2.2" />
+      <circle cx="2.5" cy="3.5" r="1.6" />
+      <circle cx="13.5" cy="3.5" r="1.6" />
+      <circle cx="3" cy="13" r="1.6" />
+      <circle cx="13" cy="13" r="1.6" />
+      <line x1="6.2" y1="6.6" x2="3.7" y2="4.7" />
+      <line x1="9.8" y1="6.6" x2="12.3" y2="4.7" />
+      <line x1="6.5" y1="9.7" x2="4.2" y2="11.7" />
+      <line x1="9.5" y1="9.7" x2="11.8" y2="11.7" />
     </svg>
   )
 }
 
 function IconKpi() {
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <polyline points="2,12 6,8 9,10 14,5" />
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="2,11 6,7 9,9 14,4" />
       <line x1="2" y1="14" x2="14" y2="14" />
+    </svg>
+  )
+}
+
+function IconSearch() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <circle cx="7" cy="7" r="4.5" />
+      <line x1="10.5" y1="10.5" x2="14" y2="14" strokeLinecap="round" />
     </svg>
   )
 }
 
 function ThothLogo() {
   return (
-    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-      <rect x="1" y="1" width="20" height="20" rx="3" stroke="#2d7dd2" strokeWidth="1.5" />
-      <path d="M6 7h10M11 7v8" stroke="#2d7dd2" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M7 15h8" stroke="#f03e3e" strokeWidth="1.5" strokeLinecap="round" />
+    <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+      <rect x="1" y="1" width="20" height="20" rx="4" stroke="#2c5eed" strokeWidth="1.6" />
+      <path d="M6 7h10M11 7v8" stroke="#2c5eed" strokeWidth="1.9" strokeLinecap="round" />
+      <path d="M7 15h8" stroke="#c8182e" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   )
 }
@@ -58,6 +73,7 @@ export default function App() {
   const [graphCustomerId, setGraphCustomerId] = useState<string | null>(null)
   const [mainView, setMainView] = useState<MainView>('empty')
   const [activeNav, setActiveNav] = useState<View>('queue')
+  const [search, setSearch] = useState('')
 
   function handleCaseSelect(item: CaseListItem) {
     setSelectedCase(item)
@@ -82,11 +98,13 @@ export default function App() {
         setMainView('graph')
       }
     } else {
-      // queue — keep detail if case selected
       if (selectedCase) setMainView('detail')
       else setMainView('empty')
     }
   }
+
+  const roleLabel = ROLE_LABELS[X_ROLE] ?? X_ROLE
+  const roleInitial = roleLabel.charAt(0)
 
   return (
     <div className="app-shell">
@@ -98,24 +116,38 @@ export default function App() {
           </div>
           <div>
             <div className="header-title">THOTH-ON</div>
-            <div className="header-subtitle">SIU CONSOLE · 보험사기탐지</div>
+            <div className="header-subtitle">보험사기 탐지 콘솔</div>
           </div>
         </div>
 
         <div className="header-divider" />
 
-        <nav className="header-nav">
+        <label className="header-search">
+          <IconSearch />
+          <input
+            type="text"
+            placeholder="사건 ID · 고객 ID 검색"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="사건 검색"
+          />
+        </label>
+
+        <div className="header-spacer" />
+
+        <nav className="header-nav" aria-label="주요 메뉴">
           <button
             className={`nav-btn${activeNav === 'queue' ? ' active' : ''}`}
             onClick={() => navigateTo('queue')}
           >
             <IconQueue />
-            케이스 큐
+            의심 사건
           </button>
           <button
             className={`nav-btn${activeNav === 'graph' ? ' active' : ''}`}
             onClick={() => navigateTo('graph' as View)}
             disabled={!graphCustomerId && !selectedCase}
+            title={!graphCustomerId && !selectedCase ? '먼저 사건을 선택하세요' : undefined}
           >
             <IconGraph />
             관계망
@@ -125,34 +157,45 @@ export default function App() {
             onClick={() => navigateTo('kpi')}
           >
             <IconKpi />
-            KPI
+            현황판
           </button>
         </nav>
 
-        <div className="header-spacer" />
+        <div className="header-divider" />
 
         <div className="header-status">
-          <span className="status-dot" />
-          <span>API · 8468</span>
+          <span className="api-status" title="API 서버 연결됨">
+            <span className="status-dot" />
+            연결됨
+          </span>
+          <div className="role-chip" title={`역할: ${X_ROLE}`}>
+            <span className="role-avatar">{roleInitial}</span>
+            {roleLabel}
+          </div>
         </div>
       </header>
 
-      {/* Sidebar — always visible */}
+      {/* Sidebar — Case Queue */}
       <CaseQueue
         selectedCaseId={selectedCase?.case_id ?? null}
         onSelect={handleCaseSelect}
+        search={search}
       />
 
       {/* Main content */}
       <main className="main-content">
         {mainView === 'empty' && (
           <div className="empty-state">
-            <div className="empty-state-icon" style={{ fontSize: 48, color: 'var(--border-bright)' }}>
-              <ThothLogo />
+            <div className="empty-illus">
+              <svg width="32" height="32" viewBox="0 0 22 22" fill="none">
+                <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" strokeWidth="1.6" />
+                <path d="M6 7h10M11 7v8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+              </svg>
             </div>
-            <span className="empty-state-text">케이스를 선택하세요</span>
-            <span className="text-muted mono" style={{ fontSize: 10 }}>
-              좌측 큐에서 케이스 클릭 → 상세 조회
+            <span className="empty-title">사건을 선택하세요</span>
+            <span className="empty-text">
+              왼쪽 목록에서 의심 사건을 클릭하면 위험 점수, 소명 근거,
+              기여 신호 등 상세 내용을 확인할 수 있습니다.
             </span>
           </div>
         )}

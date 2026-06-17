@@ -13,6 +13,14 @@ export function scoreLabel(score: number): string {
   return '낮음'
 }
 
+// Soft tinted background for score badges (light theme)
+export function scoreBg(score: number): string {
+  if (score >= 80) return 'var(--c-danger-bg)'
+  if (score >= 60) return 'var(--c-warning-bg)'
+  if (score >= 40) return 'var(--c-caution-bg)'
+  return 'var(--c-safe-bg)'
+}
+
 export function statusColor(status: string): string {
   switch (status.toUpperCase()) {
     case 'UNASSIGNED': return 'var(--c-badge-unassigned)'

@@ -1,4 +1,4 @@
-import { scoreColor, scoreLabel } from '../utils/score'
+import { scoreColor, scoreLabel, scoreBg } from '../utils/score'
 
 interface Props {
   score: number
@@ -7,27 +7,35 @@ interface Props {
 
 export function ScoreMeter({ score, size = 'md' }: Props) {
   const color = scoreColor(score)
+  const bg = scoreBg(score)
   const label = scoreLabel(score)
 
   if (size === 'lg') {
     return (
-      <div className="panel-score-block">
-        <div className="panel-score-num" style={{ color }}>
-          {score.toFixed(1)}
+      <div className="score-block" style={{ background: bg }}>
+        <div className="score-block-num" style={{ color }}>
+          {score.toFixed(0)}
         </div>
-        <div className="panel-score-label">{label}</div>
+        <div className="score-block-label" style={{ color }}>
+          {label}
+        </div>
+        <div className="score-block-cap">위험 점수 / 100</div>
       </div>
     )
   }
 
-  const fontSize = size === 'sm' ? 13 : 15
   return (
     <span
-      className="score-badge"
-      style={{ color, fontSize }}
-      title={`리스크 점수: ${score}`}
+      className={`score-pill${size === 'sm' ? ' sm' : ''}`}
+      style={{ background: bg }}
+      title={`위험 점수: ${score} (${label})`}
     >
-      {score.toFixed(1)}
+      <span className="score-num" style={{ color }}>
+        {score.toFixed(0)}
+      </span>
+      <span className="score-tag" style={{ color }}>
+        {label}
+      </span>
     </span>
   )
 }
