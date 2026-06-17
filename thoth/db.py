@@ -88,8 +88,21 @@ def apply_file(path: str | Path) -> int:
     return len(stmts)
 
 
-def reset_graph() -> None:
-    run("MATCH (n) DETACH DELETE n")
+def reset_graph(*, batch_size: int = 10000) -> None:
+    """전체 노드/관계 삭제.
+
+    대량 그래프에서 ``MATCH (n) DETACH DELETE n`` 한 트랜잭션은
+    ``dbms.memory.transaction.total.max`` 한계로 OOM(TransientError)이 난다
+    (실측: 약 50만 노드/120만 엣지에서 heap 2G·tx 1.4G 한계 도달). 따라서
+    ``CALL {...} IN TRANSACTIONS`` 로 배치 분할 삭제한다(Neo4j 5).
+    """
+    with session() as sess:
+        sess.run(
+            "MATCH (n) "
+            "CALL { WITH n DETACH DELETE n } "
+            "IN TRANSACTIONS OF $bs ROWS",
+            bs=batch_size,
+        ).consume()
 
 
 def _main(argv: list[str]) -> int:

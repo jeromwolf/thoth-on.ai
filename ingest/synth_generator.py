@@ -1,13 +1,24 @@
-"""자동차보험 합성 데이터 생성기 + 사기 링 주입 (WP1-3).
+"""자동차보험 합성 데이터 생성기 + 사기 링 주입 (WP1-3, 상용화 검증판).
 
 mapping.md §2 컬럼 스키마를 따라 7종 소스 CSV 를 생성한다:
     customers, policies, claims, vehicles, accounts, hospitals, repair_shops
 
-핵심: crash-for-cash 사기 링(ground truth) 을 의도적으로 N개 주입한다.
-각 링 멤버는 동일 Account / RepairShop / Hospital 을 공유하고, 서로의 사고를
-교차 목격(WITNESSED_BY)하며, 짧은 기간에 집중 청구한다. 사기 청구·고객에는
-ground truth 라벨(``is_fraud_ring``, ``ring_id``)을 부여하여 WP2 재현율 측정의
-정답지로 사용한다.
+핵심: crash-for-cash 사기 링(ground truth) 을 의도적으로 주입한다. **상용화
+검증을 위해** 과거의 "완벽 패턴(모든 신호 동시)" 일변도를 버리고, 현실적인
+난이도를 부여한다:
+
+1) 노이즈(정상인데 우연히 비슷한 케이스 — 오탐 유발):
+   · 정상 가족 단위 공유(계좌/주소/전화/차량 공유) — 사기 아님인데 공유 신호 발생.
+   · 대형 병원·인기 정비소에 정상 청구가 자연 집중(정상 핫스팟) — 임계 부근.
+   · 정상적인 단방향 목격(우연) — 교차목격(상호) 아님.
+
+2) 사기 링 다양화(탐지 난이도 ↑) — 라벨(ring_id)은 유지:
+   · perfect      모든 신호 동시 보유(쉬움) — 일부만.
+   · account_only 계좌만 공유, 교차목격·핫스팟 분산.
+   · witness_only 교차목격만, 계좌 분산.
+   · hotspot_only 병원/정비소 핫스팟만 공유, 계좌·목격 분산.
+   · weak         약신호(주소+핫스팟)만 — 가장 잡기 어려움.
+   링 크기(2~6인)·신호 수(1~3개)를 다양화한다.
 
 PII(name/id_number/phone_number/email/account_no/account_holder)는 평문으로
 CSV 에 생성한다(가명처리는 적재 단계 loader 가 담당). 재현성을 위해 random
@@ -16,6 +27,7 @@ seed 를 고정한다.
 CLI:
     python -m ingest.synth_generator [--out DIR] [--customers N] [--claims N]
                                      [--rings N] [--ring-size MIN MAX] [--seed S]
+                                     [--families N]
 """
 from __future__ import annotations
 
@@ -32,10 +44,11 @@ from pathlib import Path
 # ------------------------------------------------------------------
 DEFAULT_CUSTOMERS = 5000
 DEFAULT_CLAIMS = 20000
-DEFAULT_RINGS = 15
-DEFAULT_RING_SIZE = (3, 6)
+DEFAULT_RINGS = 30          # 다양한 유형을 충분히 담기 위해 증가(라벨 비율은 여전히 소수)
+DEFAULT_RING_SIZE = (2, 6)
 DEFAULT_SEED = 42
 DEFAULT_OUT = "data/synthetic"
+DEFAULT_FAMILIES = 250      # 정상 가족 공유 클러스터 수(오탐 유발 노이즈)
 
 # 보조 마스터 규모 (엔티티 합계 ~5만 노드 목표에 맞춰 조정)
 N_HOSPITALS = 120
@@ -59,6 +72,15 @@ HOSPITAL_TYPES = ["clinic", "hospital", "oriental_medicine"]
 SHOP_TYPES = ["authorized", "independent", "body_shop"]
 INCIDENT_TYPES_NORMAL = ["collision", "theft", "fire", "weather", "vandalism"]
 
+# 사기 링 유형 — (라벨은 모두 사기). 다양한 수법/난이도를 표현.
+RING_PATTERNS = [
+    "perfect",       # 모든 신호 동시(쉬움)
+    "account_only",  # 계좌 공유만
+    "witness_only",  # 상호 교차목격만
+    "hotspot_only",  # 병원+정비소 핫스팟만
+    "weak",          # 약신호(주소+핫스팟)만 — 가장 어려움
+]
+
 
 @dataclass
 class _Ctx:
@@ -71,6 +93,9 @@ class _Ctx:
     hospitals: list[dict] = field(default_factory=list)
     repair_shops: list[dict] = field(default_factory=list)
     claims: list[dict] = field(default_factory=list)
+    # 정상 핫스팟 후보(인기 대형 병원/정비소) — 정상 청구가 자연 집중되는 곳
+    popular_hospitals: list[str] = field(default_factory=list)
+    popular_shops: list[str] = field(default_factory=list)
 
 
 def _ts(d: date) -> str:
@@ -133,6 +158,8 @@ def _gen_hospitals(rng: random.Random, ctx: _Ctx) -> None:
                                       ensure_ascii=False),
             "created_at": _ts(_rand_date(rng, date(2018, 1, 1), date(2022, 1, 1))),
         })
+    # 인기 대형 병원(정상 핫스팟) — 상위 몇 곳에 정상 청구가 자연 집중된다.
+    ctx.popular_hospitals = [h["hospital_id"] for h in ctx.hospitals[:6]]
 
 
 def _gen_repair_shops(rng: random.Random, ctx: _Ctx) -> None:
@@ -148,6 +175,8 @@ def _gen_repair_shops(rng: random.Random, ctx: _Ctx) -> None:
             "rating": round(rng.uniform(2.5, 5.0), 1),
             "created_at": _ts(_rand_date(rng, date(2017, 1, 1), date(2021, 1, 1))),
         })
+    # 인기 정비소(정상 핫스팟) — 평점 좋은 체인점에 정상 청구가 자연 집중.
+    ctx.popular_shops = [s["repair_shop_id"] for s in ctx.repair_shops[:8]]
 
 
 # ------------------------------------------------------------------
@@ -160,11 +189,15 @@ def _gen_customer_bundle(
     *,
     is_fraud: bool = False,
     ring_id: str = "",
+    ring_pattern: str = "",
     shared_account_no: str | None = None,
+    shared_phone: str | None = None,
+    shared_address: str | None = None,
+    shared_vin: str | None = None,
 ) -> dict:
     """고객 1명과 그에 딸린 차량·계좌·계약을 생성하고 customer 레코드 반환.
 
-    shared_account_no 가 주어지면 해당 고객 계좌번호를 강제(사기 링 계좌 공유).
+    shared_* 인자가 주어지면 해당 식별자를 강제(사기 링/정상 가족 공유).
     반환 dict 에 내부 참조용 키(_vehicle_id, _policy_id, _account_id)를 부착한다.
     """
     cust_id = f"CUST-{idx:05d}"
@@ -177,13 +210,14 @@ def _gen_customer_bundle(
         "id_number": _make_ssn(rng, birth),
         "birth_date": birth.isoformat(),
         "gender": rng.choice(["M", "F"]),
-        "address": _make_address(rng),
-        "phone_number": _make_phone(rng),
+        "address": shared_address if shared_address is not None else _make_address(rng),
+        "phone_number": shared_phone if shared_phone is not None else _make_phone(rng),
         "email": f"user{idx}@example.com",
         "created_at": _ts(created),
         # ground truth 라벨 (정상은 빈값/False)
         "is_fraud_ring": is_fraud,
         "ring_id": ring_id,
+        "ring_pattern": ring_pattern,
     }
     ctx.customers.append(customer)
 
@@ -193,7 +227,7 @@ def _gen_customer_bundle(
     ctx.vehicles.append({
         "vehicle_id": veh_id,
         "customer_id": cust_id,
-        "vin": _make_vin(rng),
+        "vin": shared_vin if shared_vin is not None else _make_vin(rng),
         "license_plate": _make_plate(rng),
         "make": make,
         "model": rng.choice(models),
@@ -297,7 +331,62 @@ def _gen_claim(
 
 
 # ------------------------------------------------------------------
-# 사기 링 주입 (crash-for-cash)
+# 정상 가족 공유 클러스터 (노이즈 — 오탐 유발)
+# ------------------------------------------------------------------
+def _inject_normal_families(
+    rng: random.Random,
+    ctx: _Ctx,
+    *,
+    n_families: int,
+    next_cust_idx: int,
+) -> int:
+    """정상 가족 단위 공유 클러스터 주입(사기 아님 — 오탐 유발 노이즈).
+
+    현실: 가족은 같은 주소에 살고(주소 공유), 종종 같은 계좌로 보험금을 받거나
+    (가장 명의 계좌), 같은 전화(집전화→대표번호), 같은 차량(부부 공동명의)을
+    공유한다. 이는 정상인데 Q1 공유 신호를 유발한다. 라벨은 정상(is_fraud=False).
+
+    각 가족은 2~4인, 공유 신호 1~2종을 무작위로 보유한다. **교차목격(Q3)은
+    절대 만들지 않는다** — 가족이라도 서로의 사고를 상호 목격하지는 않는다.
+
+    Returns:
+        다음 고객 idx.
+    """
+    cust_idx = next_cust_idx
+    for f in range(1, n_families + 1):
+        size = rng.randint(2, 4)
+
+        # 공유 신호 종류 선택(1~2종). 가족 공유 현실 분포:
+        #   주소는 거의 항상 공유, 계좌/전화/차량은 일부.
+        share_address = rng.random() < 0.85
+        share_account = rng.random() < 0.45   # 대표 계좌로 수령
+        share_phone = rng.random() < 0.25     # 대표 연락처
+        share_vehicle = rng.random() < 0.12   # 공동명의 차량(드묾)
+        # 최소 1종은 공유하도록 보정
+        if not (share_address or share_account or share_phone or share_vehicle):
+            share_address = True
+
+        shared_addr = _make_address(rng) if share_address else None
+        bank_code, _ = rng.choice(BANKS)
+        shared_acc = _make_account_no(rng, bank_code) if share_account else None
+        shared_ph = _make_phone(rng) if share_phone else None
+        shared_v = _make_vin(rng) if share_vehicle else None
+
+        for _ in range(size):
+            _gen_customer_bundle(
+                rng, ctx, cust_idx,
+                is_fraud=False, ring_id="",
+                shared_account_no=shared_acc,
+                shared_phone=shared_ph,
+                shared_address=shared_addr,
+                shared_vin=shared_v,
+            )
+            cust_idx += 1
+    return cust_idx
+
+
+# ------------------------------------------------------------------
+# 사기 링 주입 (crash-for-cash) — 다양한 수법/난이도
 # ------------------------------------------------------------------
 def _inject_fraud_rings(
     rng: random.Random,
@@ -307,35 +396,63 @@ def _inject_fraud_rings(
     ring_size: tuple[int, int],
     next_cust_idx: int,
     next_claim_idx: int,
-) -> tuple[int, int, int, int]:
-    """crash-for-cash 사기 링 주입.
+) -> tuple[int, int, int, int, dict[str, str]]:
+    """crash-for-cash 사기 링 주입 — 유형별로 보유 신호를 달리한다.
 
-    각 링: 공유 Account/RepairShop/Hospital + 교차 목격(WITNESSED_BY) + 집중 청구.
-    Returns: (다음 고객 idx, 다음 청구 idx, 주입 청구 수, 주입 고객 수).
+    유형(RING_PATTERNS):
+        perfect      계좌 공유 + 핫스팟(병원+정비소) + 상호 교차목격(쉬움)
+        account_only 계좌만 공유, 병원/정비소·목격 모두 분산
+        witness_only 상호 교차목격만, 계좌·핫스팟 분산
+        hotspot_only 동일 병원+정비소만 공유, 계좌 분산·목격 없음
+        weak         주소 공유 + 핫스팟만(약신호) — 가장 잡기 어려움
+
+    Returns:
+        (다음 고객 idx, 다음 청구 idx, 주입 청구 수, 주입 고객 수, ring_id→pattern 맵).
     """
     fraud_claims = 0
     fraud_customers = 0
     cust_idx = next_cust_idx
     claim_idx = next_claim_idx
+    ring_pattern: dict[str, str] = {}
 
     for r in range(1, n_rings + 1):
         ring_id = f"RING-{r:03d}"
+        # 유형을 순환 배정해 각 수법이 충분히 등장하도록 한다.
+        pattern = RING_PATTERNS[(r - 1) % len(RING_PATTERNS)]
+        ring_pattern[ring_id] = pattern
         size = rng.randint(ring_size[0], ring_size[1])
+
+        # 신호 보유 여부 — 유형별 결정.
+        has_shared_account = pattern in ("perfect", "account_only")
+        has_cross_witness = pattern in ("perfect", "witness_only")
+        has_shared_hotspot = pattern in ("perfect", "hotspot_only")
+        has_shared_address = pattern == "weak"
+        has_weak_hotspot = pattern == "weak"
+
+        # 약신호 링은 신호를 더 흐리게: 일부 멤버만 공유에 참여(불완전).
+        partial = pattern in ("weak", "account_only", "witness_only", "hotspot_only")
 
         # 링 전용 공유 엔티티
         shared_bank_code, _ = rng.choice(BANKS)
         shared_account_no = _make_account_no(rng, shared_bank_code)
         shared_hospital = rng.choice(ctx.hospitals)["hospital_id"]
         shared_shop = rng.choice(ctx.repair_shops)["repair_shop_id"]
+        shared_addr = _make_address(rng)
 
-        # 링 멤버 생성 (동일 계좌번호 공유 → 엔티티 해소로 단일 Account 병합)
+        # 링 멤버 생성
         members: list[dict] = []
-        for _ in range(size):
+        for k in range(size):
+            # partial 링은 멤버의 일부(약 70%)만 공유 신호 보유 → 불완전 패턴
+            in_share = (not partial) or (rng.random() < 0.7) or (k == 0)
+            _acc = shared_account_no if (has_shared_account and in_share) else None
+            _addr = shared_addr if (has_shared_address and in_share) else None
             member = _gen_customer_bundle(
                 rng, ctx, cust_idx,
-                is_fraud=True, ring_id=ring_id,
-                shared_account_no=shared_account_no,
+                is_fraud=True, ring_id=ring_id, ring_pattern=pattern,
+                shared_account_no=_acc,
+                shared_address=_addr,
             )
+            member["_in_share"] = in_share
             members.append(member)
             cust_idx += 1
             fraud_customers += 1
@@ -345,34 +462,76 @@ def _inject_fraud_rings(
         ring_claims: list[dict] = []
         for m in members:
             inc = base_date + timedelta(days=rng.randint(0, 18))
+            in_share = m["_in_share"]
+            # 핫스팟 공유: 유형/참여 여부에 따라 동일 병원·정비소 사용 or 분산
+            if (has_shared_hotspot or has_weak_hotspot) and in_share:
+                hosp = shared_hospital
+                shop = shared_shop
+            else:
+                # 분산 — 무작위(정상 청구와 동일한 자연 분포)
+                hosp = rng.choice(ctx.hospitals)["hospital_id"] if rng.random() < 0.7 else ""
+                shop = rng.choice(ctx.repair_shops)["repair_shop_id"] if rng.random() < 0.85 else ""
             claim = _gen_claim(
                 rng, ctx, claim_idx, m,
                 incident_date=inc,
                 is_fraud=True, ring_id=ring_id,
-                hospital_id=shared_hospital,
-                repair_shop_id=shared_shop,
-                account_id=m["_account_id"],  # 각 멤버 계좌는 동일 account_no 보유
+                hospital_id=hosp,
+                repair_shop_id=shop,
+                account_id=m["_account_id"],
                 incident_type="collision",
             )
+            claim["_in_share"] = in_share
             ring_claims.append(claim)
             claim_idx += 1
             fraud_claims += 1
 
-        # 교차 목격(WITNESSED_BY): 링을 원형으로 — 각 청구가 다음 청구를 목격,
-        # 그리고 다음 청구도 해당 청구를 목격(양방향 교차)하도록 구성.
-        ids = [c["claim_id"] for c in ring_claims]
-        for i, claim in enumerate(ring_claims):
-            others = [ids[j] for j in range(len(ids)) if j != i]
-            # 링이 작으면 전원 교차, 크면 인접 2명과 교차하여 밀집 순환 형성
-            if len(others) <= 2:
-                witnesses = others
-            else:
-                nxt = ids[(i + 1) % len(ids)]
-                prv = ids[(i - 1) % len(ids)]
-                witnesses = [nxt, prv]
-            claim["witness_claim_ids"] = json.dumps(witnesses, ensure_ascii=False)
+        # 교차 목격(WITNESSED_BY) — has_cross_witness 인 유형만, 그리고 참여 멤버끼리만.
+        if has_cross_witness:
+            witnessing = [c for c in ring_claims if c["_in_share"]]
+            ids = [c["claim_id"] for c in witnessing]
+            for i, claim in enumerate(witnessing):
+                others = [ids[j] for j in range(len(ids)) if j != i]
+                if len(others) <= 2:
+                    witnesses = others
+                else:
+                    nxt = ids[(i + 1) % len(ids)]
+                    prv = ids[(i - 1) % len(ids)]
+                    witnesses = [nxt, prv]
+                claim["witness_claim_ids"] = json.dumps(witnesses, ensure_ascii=False)
 
-    return cust_idx, claim_idx, fraud_claims, fraud_customers
+    return cust_idx, claim_idx, fraud_claims, fraud_customers, ring_pattern
+
+
+def _inject_coincidental_witness(
+    rng: random.Random,
+    ctx: _Ctx,
+    *,
+    n_pairs: int,
+) -> int:
+    """정상 단방향 목격 노이즈 주입(우연한 목격 — 교차/상호 아님).
+
+    현실: 실제 사고에는 목격자(다른 사고 당사자)가 있을 수 있다. 하지만 이는
+    한 방향(A의 청구가 B를 목격)일 뿐 **상호 교차목격이 아니다**. Q3 는 양방향만
+    잡으므로 이 노이즈는 (정상적으로) 탐지되지 않아야 한다 — 견고성 시험.
+
+    이미 생성된 정상 청구 중 무작위 두 건을 골라 한쪽→다른쪽 단방향 엣지만 만든다.
+
+    Returns:
+        주입한 단방향 목격 엣지 수.
+    """
+    # 정상(비사기) 청구만 후보
+    normal_claims = [c for c in ctx.claims if not c["is_fraud_ring"]]
+    if len(normal_claims) < 2:
+        return 0
+    added = 0
+    for _ in range(n_pairs):
+        a, b = rng.sample(normal_claims, 2)
+        existing = json.loads(a["witness_claim_ids"]) if a["witness_claim_ids"] else []
+        if b["claim_id"] not in existing:
+            existing.append(b["claim_id"])
+            a["witness_claim_ids"] = json.dumps(existing, ensure_ascii=False)
+            added += 1
+    return added
 
 
 # ------------------------------------------------------------------
@@ -389,7 +548,7 @@ def _write_csv(path: Path, rows: list[dict], fieldnames: list[str]) -> None:
 
 _CUSTOMER_FIELDS = ["customer_id", "name", "id_number", "birth_date", "gender",
                     "address", "phone_number", "email", "created_at",
-                    "is_fraud_ring", "ring_id"]
+                    "is_fraud_ring", "ring_id", "ring_pattern"]
 _POLICY_FIELDS = ["policy_id", "customer_id", "vehicle_id", "product_code",
                   "coverage_type", "start_date", "end_date", "premium_amount",
                   "coverage_limit", "status", "created_at"]
@@ -418,6 +577,8 @@ class GenResult:
     n_rings: int
     n_fraud_claims: int
     n_fraud_customers: int
+    n_families: int
+    ring_pattern: dict[str, str] = field(default_factory=dict)
 
 
 def generate(
@@ -428,16 +589,22 @@ def generate(
     n_rings: int = DEFAULT_RINGS,
     ring_size: tuple[int, int] = DEFAULT_RING_SIZE,
     seed: int = DEFAULT_SEED,
+    n_families: int = DEFAULT_FAMILIES,
 ) -> GenResult:
-    """합성 데이터를 생성해 CSV 7종을 ``out_dir`` 에 저장한다.
+    """현실적 합성 데이터를 생성해 CSV 7종을 ``out_dir`` 에 저장한다.
+
+    정상 노이즈(가족 공유·정상 핫스팟·우연 단방향 목격)와 다양한 난이도의 사기
+    링(perfect/account_only/witness_only/hotspot_only/weak)을 함께 주입하여
+    탐지 성능을 과장 없이 측정할 수 있게 한다.
 
     Args:
         out_dir: 출력 디렉토리 (기본 ``data/synthetic``).
-        n_customers: 정상 고객 수 목표(사기 링 멤버는 추가됨).
+        n_customers: 정상 고객 수 목표(가족/사기 링 멤버는 추가됨).
         n_claims: 정상 청구 수 목표(사기 청구는 추가됨).
         n_rings: 주입할 crash-for-cash 링 개수.
         ring_size: 링당 멤버 수 (min, max).
         seed: random seed (재현성).
+        n_families: 정상 가족 공유 클러스터 수(오탐 유발 노이즈).
     """
     rng = random.Random(seed)
     ctx = _Ctx()
@@ -451,23 +618,39 @@ def generate(
     for idx in range(1, n_customers + 1):
         _gen_customer_bundle(rng, ctx, idx)
 
-    # 3) 정상 청구 — 기존 고객에 분산
+    # 3) 정상 가족 공유 클러스터(노이즈) — n_customers 이후 인덱스부터
+    next_idx = n_customers + 1
+    next_idx = _inject_normal_families(
+        rng, ctx, n_families=n_families, next_cust_idx=next_idx
+    )
+
+    # 4) 정상 청구 — 기존 고객에 분산(인기 병원/정비소로 일부 자연 집중 → 정상 핫스팟)
     claim_idx = 1
     for _ in range(n_claims):
         cust = rng.choice(ctx.customers)
         inc = _rand_date(rng, date(2024, 1, 1), date(2024, 12, 1))
-        _gen_claim(rng, ctx, claim_idx, cust, incident_date=inc)
+        # 25% 청구는 인기 대형 병원/정비소로 집중(정상 핫스팟 형성)
+        hosp = None
+        shop = None
+        if rng.random() < 0.25:
+            hosp = rng.choice(ctx.popular_hospitals)
+        if rng.random() < 0.25:
+            shop = rng.choice(ctx.popular_shops)
+        _gen_claim(rng, ctx, claim_idx, cust, incident_date=inc,
+                   hospital_id=hosp, repair_shop_id=shop)
         claim_idx += 1
 
-    # 4) 사기 링 주입
-    next_cust_idx = n_customers + 1
-    _, _, n_fraud_claims, n_fraud_customers = _inject_fraud_rings(
+    # 5) 사기 링 주입(유형 다양화)
+    _, claim_idx, n_fraud_claims, n_fraud_customers, ring_pattern = _inject_fraud_rings(
         rng, ctx,
         n_rings=n_rings, ring_size=ring_size,
-        next_cust_idx=next_cust_idx, next_claim_idx=claim_idx,
+        next_cust_idx=next_idx, next_claim_idx=claim_idx,
     )
 
-    # 5) CSV 직렬화
+    # 6) 정상 단방향 목격 노이즈(우연 — 상호 아님, Q3 미탐지 기대)
+    _inject_coincidental_witness(rng, ctx, n_pairs=max(50, n_claims // 200))
+
+    # 7) CSV 직렬화
     _write_csv(out / "customers.csv", ctx.customers, _CUSTOMER_FIELDS)
     _write_csv(out / "policies.csv", ctx.policies, _POLICY_FIELDS)
     _write_csv(out / "vehicles.csv", ctx.vehicles, _VEHICLE_FIELDS)
@@ -483,11 +666,13 @@ def generate(
         n_rings=n_rings,
         n_fraud_claims=n_fraud_claims,
         n_fraud_customers=n_fraud_customers,
+        n_families=n_families,
+        ring_pattern=ring_pattern,
     )
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="THOTH-ON 합성 데이터 생성기 (WP1-3)")
+    p = argparse.ArgumentParser(description="THOTH-ON 합성 데이터 생성기 (WP1-3, 현실판)")
     p.add_argument("--out", default=DEFAULT_OUT, help="출력 디렉토리")
     p.add_argument("--customers", type=int, default=DEFAULT_CUSTOMERS, help="정상 고객 수")
     p.add_argument("--claims", type=int, default=DEFAULT_CLAIMS, help="정상 청구 수")
@@ -495,6 +680,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--ring-size", type=int, nargs=2, default=list(DEFAULT_RING_SIZE),
                    metavar=("MIN", "MAX"), help="링당 멤버 수 범위")
     p.add_argument("--seed", type=int, default=DEFAULT_SEED, help="random seed")
+    p.add_argument("--families", type=int, default=DEFAULT_FAMILIES,
+                   help="정상 가족 공유 클러스터 수(오탐 유발 노이즈)")
     return p.parse_args(argv)
 
 
@@ -507,16 +694,25 @@ def main(argv: list[str] | None = None) -> int:
         n_rings=args.rings,
         ring_size=tuple(args.ring_size),
         seed=args.seed,
+        n_families=args.families,
     )
     print("=" * 56)
-    print(" 합성 데이터 생성 완료 (WP1-3)")
+    print(" 합성 데이터 생성 완료 (WP1-3, 현실판)")
     print("=" * 56)
     print(f"  출력 디렉토리 : {res.out_dir}")
     print(f"  고객(전체)    : {res.n_customers:,}")
     print(f"  청구(전체)    : {res.n_claims:,}")
+    print(f"  정상 가족 클러스터: {res.n_families}")
     print(f"  사기 링       : {res.n_rings}")
     print(f"  사기 청구     : {res.n_fraud_claims:,}")
     print(f"  사기 고객     : {res.n_fraud_customers:,}")
+    print("-" * 56)
+    # 링 유형 분포
+    from collections import Counter
+    dist = Counter(res.ring_pattern.values())
+    print("  링 유형 분포:")
+    for pat in RING_PATTERNS:
+        print(f"    {pat:<14}: {dist.get(pat, 0)}개")
     print("-" * 56)
     print("  생성 파일: customers, policies, vehicles, accounts,")
     print("            hospitals, repair_shops, claims (.csv)")

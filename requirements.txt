@@ -4,6 +4,10 @@ pydantic>=2.5
 pydantic-settings>=2.1
 python-dotenv>=1.0
 
+# ML 분류기 + 앙상블 (WP3 · FR-3.7) — 그래프 신호 가중치 자동 학습
+scikit-learn>=1.3
+numpy>=1.24
+
 # API (WP5)
 fastapi>=0.110
 uvicorn[standard]>=0.29

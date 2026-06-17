@@ -36,6 +36,12 @@ _HOTSPOT_META: dict[str, tuple[str, str, str]] = {
     "HOTSPOT_ACCOUNT": ("Account", "PAID_TO", "계좌 핫스팟"),
 }
 
+# 집중/담합 핫스팟(병원+정비소 동시 집중) 라벨.
+_FOCUSED_HOTSPOT_LABEL: dict[str, str] = {
+    "FOCUSED_HOTSPOT": "집중 핫스팟(병원+정비소)",
+    "COLLUSION_HOTSPOT": "담합 핫스팟(동일 충돌 동시청구)",
+}
+
 
 def _node(node_id: str, node_type: str, label: str = "") -> dict[str, str]:
     return {"id": str(node_id), "type": node_type, "label": label or str(node_id)}
@@ -67,8 +73,12 @@ def build_paths(customer_id: str, signals: list[dict[str, Any]]) -> list[dict[st
             paths.append(_build_cross_witness_path(customer_id, sig))
         elif stype in _HOTSPOT_META:
             paths.append(_build_hotspot_path(customer_id, sig, stype))
+        elif stype in _FOCUSED_HOTSPOT_LABEL:
+            paths.append(_build_focused_hotspot_path(customer_id, sig, stype))
         elif stype.startswith("GDS_"):
             paths.append(_build_gds_path(customer_id, sig, stype))
+        elif stype == "MULTI_SIGNAL":
+            paths.append(_build_multi_signal_path(customer_id, sig))
     return paths
 
 
@@ -153,6 +163,70 @@ def _build_hotspot_path(
         "nodes": nodes,
         "edges": edges,
         "entities": sorted(entities),
+    }
+
+
+def _build_focused_hotspot_path(
+    customer_id: str, sig: dict[str, Any], stype: str
+) -> dict[str, Any]:
+    """집중/담합 핫스팟 경로: 고객 -TREATED_AT-> 병원, -REPAIRED_AT-> 정비소.
+
+    인용 가능한 엔티티(병원·정비소)를 모두 노드로 노출해 환각 가드가 대조할 수
+    있게 한다.
+    """
+    label = _FOCUSED_HOTSPOT_LABEL[stype]
+    hospital_id = str(sig.get("entity_id", ""))
+    hospital_name = sig.get("entity_name") or hospital_id
+    shop_id = str(sig.get("shop_id", "")) if sig.get("shop_id") else ""
+    span_days = sig.get("span_days")
+
+    nodes = [
+        _node(customer_id, "Customer"),
+        _node(hospital_id, "Hospital", str(hospital_name)),
+    ]
+    edges = [_edge(customer_id, hospital_id, "TREATED_AT")]
+    entities = {customer_id, hospital_id}
+    if shop_id:
+        nodes.append(_node(shop_id, "RepairShop"))
+        edges.append(_edge(customer_id, shop_id, "REPAIRED_AT"))
+        entities.add(shop_id)
+
+    span_txt = f", {span_days}일 내 집중" if span_days is not None else ""
+    return {
+        "signal_type": stype,
+        "weight": sig.get("weight"),
+        "label": f"{label}: {hospital_name} ({sig.get('num_customers')}인{span_txt})",
+        "entity_id": hospital_id,
+        "entity_name": str(hospital_name),
+        "entity_type": "Hospital",
+        "shop_id": shop_id,
+        "nodes": nodes,
+        "edges": edges,
+        "entities": sorted(entities),
+    }
+
+
+def _build_multi_signal_path(
+    customer_id: str, sig: dict[str, Any]
+) -> dict[str, Any]:
+    """복수 신호 보너스 경로 — 자체 그래프 엔티티는 없는 결합 근거(설명용).
+
+    여러 독립 신호 그룹이 동시 충족되어 가산된 보너스임을 명시한다. 인용 가능한
+    신규 엔티티는 없으므로 entities 는 고객 본인만 둔다(환각 가드 안전).
+    """
+    groups = sig.get("signal_groups", [])
+    return {
+        "signal_type": "MULTI_SIGNAL",
+        "weight": sig.get("weight"),
+        "label": f"복수 신호 동시 충족({sig.get('num_groups')}종: {', '.join(groups)})",
+        "detail": {
+            "signal_groups": groups,
+            "num_groups": sig.get("num_groups"),
+            "high_confidence_groups": sig.get("high_confidence_groups", []),
+        },
+        "nodes": [_node(customer_id, "Customer")],
+        "edges": [],
+        "entities": [customer_id],
     }
 
 

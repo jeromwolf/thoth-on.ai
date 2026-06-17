@@ -1,4 +1,4 @@
-.PHONY: help venv install up down logs wait-neo4j schema synth seed reset serve test test-smoke test-int psh
+.PHONY: help venv install up down logs wait-neo4j schema synth seed reset serve test test-smoke test-int psh gds embed evaluate detect ml
 
 THOTH_API_PORT ?= 8468
 
@@ -41,6 +41,20 @@ seed: ## 합성 데이터 멱등 적재 (WP1)
 
 reset: ## 그래프 전체 삭제
 	$(PYTHON) -m thoth.db reset
+
+gds: ## GDS 군집·중심성 파이프라인 (WP3 · FR-3.4)
+	$(PYTHON) -m detection.gds_pipeline run
+
+embed: ## 그래프 임베딩 + 비지도 이상탐지 파이프라인 (WP3 · FR-3.6)
+	$(PYTHON) -m detection.embedding run
+
+detect: gds embed ## 전체 탐지 파이프라인 (GDS + 임베딩) 갱신
+
+evaluate: ## 탐지 성능 평가 (룰만 vs 룰+임베딩 비교 + 임계치 스윕)
+	$(PYTHON) -m detection.evaluate --threshold 50 --embedding --compare-embedding
+
+ml: ## ML 분류기 + 앙상블 (WP3 · FR-3.7) — 누수 없는 CV + 3단 비교 + 피처 중요도
+	$(PYTHON) -m detection.ml_model --model rf --folds 5
 
 test: ## 전체 테스트
 	$(PYTEST)

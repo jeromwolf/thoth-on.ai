@@ -18,22 +18,45 @@
 
 
 // ------------------------------------------------------------
-// Q1 — 공유 엔티티 탐지 (FR-3.1)
+// Q1 — 공유 엔티티 탐지 (FR-3.1) — 정상(가족) 공유 구분 컨텍스트 포함
 // 동일 Account / Phone(number_hash) / Address / Vehicle(vin) 를
 // 2명 이상 고객이 공유하는 쌍·군집을 반환한다.
 // $min_customers : 공유로 간주할 최소 고객 수 (기본 2)
+//
+// [정밀도 — 정상 공유 구분축 (data/synthetic_test 실측)]
+//   각 공유 군집에 두 가지 컨텍스트를 함께 산출해 가족/사기를 점수 단계에서
+//   차등화한다(detection/scoring.py):
+//     · distinct_addresses : 군집 고객의 서로 다른 주소 수.
+//         - 가족: 같은 주소(distinct < n, 실측 addr_ratio≈0.45) → 약 신호.
+//         - 사기: 모두 다른 주소(distinct = n, 무관한 다수)           → 강 신호.
+//     · time_span_days : 군집 청구 incident_date 의 (최대-최소) 일수.
+//         - 가족: 연중 분산(실측 ≈262일)  → 약.
+//         - 사기: 짧은 기간 집중(실측 ≈11일) → 강(시간 군집 보너스).
 // ------------------------------------------------------------
 
 // Q1-Account: 동일 계좌 공유 (서로 다른 고객의 청구금이 같은 계좌로 지급)
+//   + 주소 동일성(distinct_addresses) + 청구 시간 군집(time_span_days)
 MATCH (c:Customer)-[:FILED]->(:Claim)-[:PAID_TO]->(a:Account)
 WITH a, collect(DISTINCT c) AS customers
 WHERE size(customers) >= $min_customers
+OPTIONAL MATCH (ac:Customer)-[:LIVES_AT]->(ad:Address) WHERE ac IN customers
+WITH a, customers, count(DISTINCT ad.address_id) AS distinct_addresses
+OPTIONAL MATCH (cc:Customer)-[:FILED]->(cl:Claim)
+WHERE cc IN customers AND cl.incident_date IS NOT NULL
+WITH a, customers, distinct_addresses, collect(date(cl.incident_date)) AS dts
 RETURN 'ACCOUNT' AS shared_type,
        a.account_no AS shared_key,
        [x IN customers | x.customer_id] AS customer_ids,
        size(customers) AS num_customers,
-       [x IN customers | x.ring_id] AS ring_ids
+       [x IN customers | x.ring_id] AS ring_ids,
+       distinct_addresses,
+       CASE WHEN size(dts) >= 2 THEN duration.inDays(
+              reduce(mn=date('2099-12-31'), d IN dts | CASE WHEN d<mn THEN d ELSE mn END),
+              reduce(mx=date('1900-01-01'), d IN dts | CASE WHEN d>mx THEN d ELSE mx END)
+            ).days ELSE -1 END AS time_span_days
 ORDER BY num_customers DESC;
+// (Phone/Vehicle 도 동일 패턴으로 distinct_addresses·time_span_days 를 산출한다.
+//  Address 공유는 그 자체가 같은 주소이므로 distinct_addresses=1 로 고정.)
 
 // Q1-Phone: 동일 전화번호(number_hash) 공유
 MATCH (c:Customer)-[:HAS_PHONE]->(p:Phone)
@@ -112,6 +135,61 @@ RETURN 'ACCOUNT' AS entity_type,
        size(customers) AS num_customers,
        [x IN customers | x.customer_id] AS customer_ids
 ORDER BY num_customers DESC;
+
+// ------------------------------------------------------------
+// Q2b/Q2c — 집중·담합 핫스팟 (FR-3.2 정밀판) — baseline 정규화
+// 단순 청구 건수가 아니라 "기대치 대비 이상 집중"을 잡는다. 인기 대형 병원/
+// 정비소(정상 운영 baseline)는 제외하고, 비인기 (병원+정비소) 쌍을 소수 고객이
+// 짧은 기간에 함께 이용하는 군집만 의심한다. 정상 대형 엔티티가 건수만 많다고
+// 핫스팟이 되지 않게 한다.
+//   $popular_hospitals / $popular_shops : 정상 baseline 엔티티(제외)
+//   $max_customers : 소수 집중 상한
+//   $cluster_days  : 청구 시간 군집 창
+// ------------------------------------------------------------
+
+// Q2b-Focused: 비인기 (병원+정비소) 소수·시간군집 공유 (corroborating 약 신호)
+MATCH (c:Customer)-[:FILED]->(cl:Claim)-[:TREATED_AT]->(h:Hospital)
+MATCH (cl)-[:REPAIRED_AT]->(s:RepairShop)
+WHERE NOT h.hospital_id IN $popular_hospitals
+  AND NOT s.shop_id IN $popular_shops
+  AND cl.incident_date IS NOT NULL
+WITH h, s, collect(DISTINCT c) AS customers, collect(date(cl.incident_date)) AS dts
+WHERE size(customers) >= 2 AND size(customers) <= $max_customers
+WITH h, s, customers, dts,
+     duration.inDays(
+       reduce(mn=date('2099-12-31'), d IN dts | CASE WHEN d<mn THEN d ELSE mn END),
+       reduce(mx=date('1900-01-01'), d IN dts | CASE WHEN d>mx THEN d ELSE mx END)
+     ).days AS span_days
+WHERE span_days <= $cluster_days
+RETURN 'FOCUSED_HOTSPOT' AS entity_type, h.hospital_id AS entity_id,
+       h.name AS entity_name, s.shop_id AS shop_id,
+       size(customers) AS num_customers,
+       [x IN customers | x.customer_id] AS customer_ids, span_days
+ORDER BY num_customers DESC, span_days ASC;
+
+// Q2c-Collusion: 위 조건 + 매우 짧은 기간(<=14일) + 단일 사고유형(collision)
+//   crash-for-cash 의 "동일 충돌 동시 청구" 담합 특성 — 약신호 링(hotspot_only/
+//   weak) 회수용 고정밀 신호(실측 정밀 ~81%).
+MATCH (c:Customer)-[:FILED]->(cl:Claim)-[:TREATED_AT]->(h:Hospital)
+MATCH (cl)-[:REPAIRED_AT]->(s:RepairShop)
+WHERE NOT h.hospital_id IN $popular_hospitals
+  AND NOT s.shop_id IN $popular_shops
+  AND cl.incident_date IS NOT NULL
+WITH h, s, collect(DISTINCT c) AS customers,
+     collect(DISTINCT cl.incident_type) AS types, collect(date(cl.incident_date)) AS dts
+WHERE size(customers) >= 2 AND size(customers) <= $max_customers
+  AND size(types) = 1 AND types[0] = 'collision'
+WITH h, s, customers,
+     duration.inDays(
+       reduce(mn=date('2099-12-31'), d IN dts | CASE WHEN d<mn THEN d ELSE mn END),
+       reduce(mx=date('1900-01-01'), d IN dts | CASE WHEN d>mx THEN d ELSE mx END)
+     ).days AS span_days
+WHERE span_days <= $cluster_days
+RETURN 'COLLUSION_HOTSPOT' AS entity_type, h.hospital_id AS entity_id,
+       h.name AS entity_name, s.shop_id AS shop_id,
+       size(customers) AS num_customers,
+       [x IN customers | x.customer_id] AS customer_ids, span_days
+ORDER BY num_customers DESC, span_days ASC;
 
 
 // ------------------------------------------------------------

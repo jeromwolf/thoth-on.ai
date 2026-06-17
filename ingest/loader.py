@@ -143,6 +143,7 @@ def _load_customers(sess: Any, rows: list[dict], salt: str, batch_size: int) -> 
             "created_at": _nz(r.get("created_at")),
             "is_fraud_ring": _parse_bool(r.get("is_fraud_ring")),
             "ring_id": r.get("ring_id") or "",
+            "ring_pattern": r.get("ring_pattern") or "",
         })
     cypher = """
     UNWIND $rows AS row
@@ -154,7 +155,8 @@ def _load_customers(sess: Any, rows: list[dict], salt: str, batch_size: int) -> 
         c.gender = row.gender,
         c.created_at = row.created_at,
         c.is_fraud_ring = row.is_fraud_ring,
-        c.ring_id = row.ring_id
+        c.ring_id = row.ring_id,
+        c.ring_pattern = row.ring_pattern
     """
     return _run_batched(sess, cypher, payload, batch_size=batch_size)
 
