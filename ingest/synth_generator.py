@@ -130,6 +130,204 @@ def _fraud_address(rng: random.Random) -> str:
     return f"{rng.choice(FRAUD_HOTSPOT_CITIES)} {rng.choice(STREETS)} {rng.randint(1, 999)}"
 
 
+# ------------------------------------------------------------------
+# ① 캐글(fraud_oracle) 실분포 prior — 배경 청구의 속성·조건부 사기확률을
+#    현실(자동차보험 청구)에 맞춘다. 기본은 real_distributions.json 을 읽되,
+#    파일이 없으면 아래 BAKED 값(2026-06 실측 스냅샷)을 fallback 으로 사용한다
+#    (테스트/오프라인 재현성 보장).
+# ------------------------------------------------------------------
+KAGGLE_DIST_PATH = "data/kaggle/real_distributions.json"
+
+# fraud_oracle.csv (15,420건) 실측 스냅샷 — (share, fraud_rate).
+# 각 축의 카테고리별 전체비중과 조건부 사기율. ingest.kaggle_analysis 산출과 일치.
+_BAKED_PRIORS: dict[str, dict[str, tuple[float, float]]] = {
+    "vehicle_category": {
+        "Sedan":   (0.6272, 0.0822),
+        "Sport":   (0.3475, 0.0157),
+        "Utility": (0.0254, 0.1125),
+    },
+    "accident_area": {
+        "Urban": (0.8964, 0.0572),
+        "Rural": (0.1036, 0.0832),
+    },
+    "fault": {
+        "Policy Holder": (0.7283, 0.0789),
+        "Third Party":   (0.2717, 0.0088),
+    },
+    "base_policy": {
+        "Collision":  (0.4179, 0.0726),
+        "Liability":  (0.3550, 0.0073),
+        "All Perils": (0.2271, 0.1015),
+    },
+}
+_BAKED_OVERALL_FRAUD_RATE = 0.0599
+
+
+@dataclass
+class _KagglePriors:
+    """캐글 실분포 prior 묶음 — 배경 청구 속성/사기확률 샘플링에 사용."""
+
+    axes: dict[str, dict[str, tuple[float, float]]]  # axis -> {cat: (share, fraud_rate)}
+    overall_fraud_rate: float
+
+    def categories(self, axis: str) -> tuple[list[str], list[float]]:
+        """축의 (카테고리 목록, share 가중치) — rng.choices 용."""
+        d = self.axes[axis]
+        cats = list(d.keys())
+        weights = [d[c][0] for c in cats]
+        return cats, weights
+
+    def fraud_rate(self, axis: str, cat: str) -> float:
+        return self.axes[axis].get(cat, (0.0, self.overall_fraud_rate))[1]
+
+
+def _load_kaggle_priors(path: str | Path = KAGGLE_DIST_PATH) -> _KagglePriors:
+    """real_distributions.json 을 prior 로 로드. 없으면 BAKED fallback 사용.
+
+    JSON 의 categorical 키(Fault/BasePolicy/VehicleCategory/AccidentArea)를
+    내부 축 이름(fault/base_policy/vehicle_category/accident_area)으로 매핑한다.
+    """
+    json_to_axis = {
+        "VehicleCategory": "vehicle_category",
+        "AccidentArea": "accident_area",
+        "Fault": "fault",
+        "BasePolicy": "base_policy",
+        # ② 듀얼 레이어 — 속성 ML 적용을 위한 캐글 호환 행동/시계열·범주 축 추가.
+        #   합성 청구에도 캐글 호환 속성을 부여해 속성 ML 레이어가 적용 가능하게 한다.
+        "Make": "make",
+        "Sex": "sex",
+        "MaritalStatus": "marital_status",
+        "AgentType": "agent_type",
+        "PolicyType": "policy_type",
+        "Days_Policy_Accident": "days_policy_accident",
+        "Days_Policy_Claim": "days_policy_claim",
+        "PastNumberOfClaims": "past_number_of_claims",
+        "AgeOfVehicle": "age_of_vehicle",
+        "AgeOfPolicyHolder": "age_of_policy_holder",
+        "VehiclePrice": "vehicle_price",
+        "Deductible": "deductible",
+        "DriverRating": "driver_rating",
+        "PoliceReportFiled": "police_report_filed",
+        "WitnessPresent": "witness_present",
+        "NumberOfCars": "number_of_cars",
+        "NumberOfSuppliments": "number_of_suppliments",
+        "AddressChange_Claim": "address_change_claim",
+        "MonthClaimed": "month_claimed",
+    }
+    p = Path(path)
+    if p.exists():
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            cat = data.get("categorical", {})
+            axes: dict[str, dict[str, tuple[float, float]]] = {}
+            for jkey, axis in json_to_axis.items():
+                if jkey in cat:
+                    axes[axis] = {
+                        v: (d["share"], d["fraud_rate"]) for v, d in cat[jkey].items()
+                    }
+            if axes:  # 필요한 축이 하나라도 있으면 사용, 빠진 축은 BAKED 보충
+                for axis, baked in _BAKED_PRIORS.items():
+                    axes.setdefault(axis, baked)
+                return _KagglePriors(
+                    axes=axes,
+                    overall_fraud_rate=float(
+                        data.get("overall_fraud_rate", _BAKED_OVERALL_FRAUD_RATE)
+                    ),
+                )
+        except Exception:
+            pass
+    return _KagglePriors(axes=dict(_BAKED_PRIORS),
+                         overall_fraud_rate=_BAKED_OVERALL_FRAUD_RATE)
+
+
+def _sample_kaggle_attrs(rng: random.Random, priors: _KagglePriors) -> dict[str, str]:
+    """캐글 실분포(marginal share)로 청구 속성 4축을 샘플링."""
+    attrs: dict[str, str] = {}
+    for axis in ("vehicle_category", "accident_area", "fault", "base_policy"):
+        cats, weights = priors.categories(axis)
+        attrs[axis] = rng.choices(cats, weights=weights, k=1)[0]
+    return attrs
+
+
+# ------------------------------------------------------------------
+# ② 듀얼 레이어 — 캐글 호환 행동/시계열·범주 속성을 합성 청구에 부여.
+#   속성 ML 레이어(detection.attribute_model)가 합성 청구에도 적용되도록, 캐글
+#   컬럼명과 값 어휘를 그대로 따르는 속성을 샘플링한다(BAKED fallback 포함).
+#   사기 청구는 실데이터에서 사기율이 높은 값(가입직후·주소변경 직후·고가차 등)으로
+#   약하게 치우치게 해(naive lift 기반) 속성 ML 이 합성 개인사기도 잡게 한다.
+# ------------------------------------------------------------------
+# 캐글 행동/시계열·범주 축(① 4축 외 추가). JSON/BAKED 가 없으면 균등 fallback.
+_KAGGLE_BEHAVIORAL_AXES = (
+    "make", "sex", "marital_status", "agent_type", "policy_type",
+    "days_policy_accident", "days_policy_claim", "past_number_of_claims",
+    "age_of_vehicle", "age_of_policy_holder", "vehicle_price", "deductible",
+    "driver_rating", "police_report_filed", "witness_present",
+    "number_of_cars", "number_of_suppliments", "address_change_claim",
+    "month_claimed",
+)
+
+
+def _sample_axis_fraud_aware(
+    rng: random.Random, priors: _KagglePriors, axis: str, *, is_fraud: bool,
+) -> str | None:
+    """한 축을 share 로 샘플링하되, 사기면 조건부 사기율(lift)로 가중을 휜다.
+
+    정상 청구는 캐글 marginal(share)을 그대로 따른다. 사기 청구는 각 카테고리의
+    조건부 사기율을 가중에 곱해(share × fraud_rate) 실데이터에서 사기와 더 연관된
+    값(예: 주소변경 직후·고가차·본인과실)이 더 자주 나오게 한다. 이는 캐글에서
+    관찰된 신호를 합성 개인사기에 이식할 뿐, 라벨을 피처로 쓰는 누수가 아니다
+    (속성 ML 은 캐글로 독립 학습/검증된다).
+    """
+    if axis not in priors.axes:
+        return None
+    d = priors.axes[axis]
+    cats = list(d.keys())
+    if not cats:
+        return None
+    if is_fraud:
+        # share × (조건부 사기율 / 전체율) — lift 가중. 0 방지 위해 하한.
+        base = priors.overall_fraud_rate or 0.06
+        weights = [max(1e-6, d[c][0] * (d[c][1] / base)) for c in cats]
+    else:
+        weights = [d[c][0] for c in cats]
+    return rng.choices(cats, weights=weights, k=1)[0]
+
+
+def _sample_kaggle_behavioral(
+    rng: random.Random, priors: _KagglePriors, *, is_fraud: bool,
+) -> dict[str, str]:
+    """캐글 호환 행동/시계열·범주 속성 묶음을 샘플링한다(① 4축 외 추가).
+
+    각 축은 캐글 실분포로 샘플링하며, 사기 청구는 조건부 사기율 lift 로 가중을
+    휘어 실데이터 신호(가입직후 청구·주소변경 직후·본인과실·고가차)를 반영한다.
+    JSON/BAKED 에 없는 축은 생략(빈 문자열) — loader 가 graceful 처리.
+    """
+    out: dict[str, str] = {}
+    for axis in _KAGGLE_BEHAVIORAL_AXES:
+        v = _sample_axis_fraud_aware(rng, priors, axis, is_fraud=is_fraud)
+        out[axis] = v if v is not None else ""
+    return out
+
+
+def _opportunistic_fraud_prob(priors: _KagglePriors, attrs: dict[str, str]) -> float:
+    """배경(비링) 청구의 조건부 사기확률 — 캐글 실 조건부율을 축별로 결합.
+
+    각 축의 조건부 사기율을 전체 사기율로 정규화한 lift 의 곱(naive Bayes 풍)에
+    기준 사기율을 곱해 결합 확률을 만든다. 본인과실·All Perils·Utility·Rural 처럼
+    실데이터에서 사기율이 높은 조합일수록 확률이 올라간다.
+    """
+    base = priors.overall_fraud_rate
+    if base <= 0:
+        return 0.0
+    lift = 1.0
+    for axis, cat in attrs.items():
+        rate = priors.fraud_rate(axis, cat)
+        lift *= (rate / base) if base else 1.0
+    prob = base * lift
+    # 과도한 결합을 방지(상한). 실데이터 최고 조건부율(All Perils 10.2%)의 ~2배 내.
+    return max(0.0, min(prob, 0.22))
+
+
 @dataclass
 class _Ctx:
     """생성 컨텍스트 — 누적 레코드 보관."""
@@ -149,6 +347,11 @@ class _Ctx:
     # ETL 엣지 파생용 매핑: 브로커→알선 고객, 설계사→모집 계약
     brokered: list[dict] = field(default_factory=list)   # {broker_id, customer_id}
     sold_policy: list[dict] = field(default_factory=list)  # {agent_id, policy_id}
+    # ① 캐글 실분포 prior(배경 청구 속성/조건부 사기확률 현실화)
+    priors: _KagglePriors | None = None
+    # ① 속성 샘플링 전용 RNG — 기존 생성 스트림(링 구조 등)을 교란하지 않도록
+    #   분리한다(재현성·기존 링 응집도 보존). generate() 에서 seed 로 초기화.
+    attr_rng: random.Random | None = None
 
 
 def _ts(d: date) -> str:
@@ -404,6 +607,22 @@ def _gen_claim(
     status = rng.choice(["approved", "approved", "pending", "under_review", "denied"])
     paid = round(claimed * rng.uniform(0.7, 1.0), 2) if status == "approved" else None
 
+    # ① 캐글 실분포(marginal)로 청구 속성 4축 샘플링.
+    #   사기 링 청구는 본인과실(Policy Holder) 비중을 높여 실데이터 신호와 정합.
+    #   전용 attr_rng 사용 — 기존 생성 스트림(링 구조)을 교란하지 않는다.
+    if ctx.priors is not None:
+        arng = ctx.attr_rng if ctx.attr_rng is not None else rng
+        kattrs = _sample_kaggle_attrs(arng, ctx.priors)
+        if is_fraud and arng.random() < 0.8:
+            kattrs["fault"] = "Policy Holder"  # 실데이터: 사기는 본인과실 집중
+        # ② 듀얼 레이어 — 캐글 호환 행동/시계열·범주 속성도 부여(속성 ML 적용).
+        kattrs.update(_sample_kaggle_behavioral(arng, ctx.priors, is_fraud=is_fraud))
+    else:
+        kattrs = {"vehicle_category": "", "accident_area": "",
+                  "fault": "", "base_policy": ""}
+        for axis in _KAGGLE_BEHAVIORAL_AXES:
+            kattrs[axis] = ""
+
     claim = {
         "claim_id": claim_id,
         "customer_id": customer["customer_id"],
@@ -424,6 +643,13 @@ def _gen_claim(
         "fraud_label": is_fraud,
         "witness_claim_ids": json.dumps(witness_claim_ids or [], ensure_ascii=False),
         "created_at": _ts(report),
+        # ① 캐글 실분포 현실화 속성
+        "vehicle_category": kattrs["vehicle_category"],
+        "accident_area": kattrs["accident_area"],
+        "fault": kattrs["fault"],
+        "base_policy": kattrs["base_policy"],
+        # ② 듀얼 레이어 — 캐글 호환 행동/시계열·범주 속성(속성 ML 적용용)
+        **{axis: kattrs.get(axis, "") for axis in _KAGGLE_BEHAVIORAL_AXES},
         # ground truth 라벨
         "is_fraud_ring": is_fraud,
         "ring_id": ring_id,
@@ -812,6 +1038,89 @@ def _inject_fraud_rings(
     return st.cust_idx, st.claim_idx, st.fraud_claims, st.fraud_customers, st.ring_pattern
 
 
+def _inject_opportunistic_fraud(
+    rng: random.Random,
+    ctx: _Ctx,
+    *,
+    target_claim_fraud_rate: float = 0.06,
+) -> dict[str, int]:
+    """① 배경 단발성(비링) 사기 청구를 캐글 실 조건부율로 부여한다.
+
+    한국 수법 5종(ring)은 **그래프로 묶이는 공모형** 사기다. 그러나 현실의
+    자동차보험 사기 대다수는 개인의 기회적/단발성 과장청구로, 공모 네트워크가
+    없다(그래프 신호가 약함). 캐글 fraud_oracle(5.99%)이 바로 이 배경 분포다.
+
+    여기서는 **정상 고객의 기존 정상 청구** 중 일부를, 그 청구의 속성(본인과실·
+    All Perils·Utility·Rural 등)에 연동된 캐글 실 조건부 사기확률로 사기 라벨
+    (``fraud_label=True``)로 뒤집는다. 단, ground truth 링 라벨(``is_fraud_ring``)은
+    건드리지 않는다 — 링 단위 평가(290명/30링)는 그대로 보존된다. 이렇게 하면
+    **청구 단위 전체 사기율이 ~6% 로 현실화**되며, 그래프로 안 잡히는 배경 사기가
+    정밀도 압박(오탐 여지)을 만든다.
+
+    Returns:
+        {"opportunistic": 뒤집은 청구 수, "claim_fraud_total": 전체 사기 청구 수}.
+    """
+    if ctx.priors is None:
+        return {"opportunistic": 0, "claim_fraud_total": 0}
+
+    total = len(ctx.claims)
+    already_fraud = sum(1 for c in ctx.claims if c["fraud_label"])
+    target_fraud = int(round(total * target_claim_fraud_rate))
+    need = max(0, target_fraud - already_fraud)
+    if need <= 0:
+        return {"opportunistic": 0, "claim_fraud_total": already_fraud}
+
+    # 정상(비링) 청구 후보를 섞어 순회하며 조건부 확률로 뒤집는다.
+    candidates = [c for c in ctx.claims if not c["fraud_label"]]
+    rng.shuffle(candidates)
+
+    def _rebias_behavioral(c: dict) -> None:
+        """② 듀얼 레이어 — 개인사기로 뒤집힌 청구의 캐글 행동/시계열·범주 속성을
+        사기 신호 쪽으로 재샘플링(주소변경 직후·본인과실·고가차 등). 이렇게 해야
+        속성 ML 레이어가 합성 '배경 개인사기'를 실데이터 신호로 잡을 수 있다.
+        4 base 축(이미 선택확률을 결정)도 fault 만 본인과실로 약하게 강화한다."""
+        if ctx.priors is None:
+            return
+        beh = _sample_kaggle_behavioral(rng, ctx.priors, is_fraud=True)
+        for axis in _KAGGLE_BEHAVIORAL_AXES:
+            if beh.get(axis):
+                c[axis] = beh[axis]
+        if rng.random() < 0.8:
+            c["fault"] = "Policy Holder"
+
+    flipped = 0
+    for c in candidates:
+        if flipped >= need:
+            break
+        attrs = {
+            "vehicle_category": c.get("vehicle_category", ""),
+            "accident_area": c.get("accident_area", ""),
+            "fault": c.get("fault", ""),
+            "base_policy": c.get("base_policy", ""),
+        }
+        p = _opportunistic_fraud_prob(ctx.priors, attrs)
+        # need 를 채우기 위해 조건부 확률을 가속(상대 가중 유지). 실데이터 조건부
+        # 서열(본인과실>제3자 등)은 보존하되 절대 채택률을 끌어올린다.
+        if rng.random() < min(1.0, p * 6.0):
+            c["fraud_label"] = True
+            c["ring_pattern"] = "opportunistic"  # 비링 배경 사기(그래프 비공모)
+            _rebias_behavioral(c)
+            flipped += 1
+
+    # 부족하면(드묾) 남은 후보에서 확률 무시하고 채움(목표율 보장).
+    if flipped < need:
+        for c in candidates:
+            if flipped >= need:
+                break
+            if not c["fraud_label"]:
+                c["fraud_label"] = True
+                c["ring_pattern"] = "opportunistic"
+                _rebias_behavioral(c)
+                flipped += 1
+
+    return {"opportunistic": flipped, "claim_fraud_total": already_fraud + flipped}
+
+
 def _inject_coincidental_witness(
     rng: random.Random,
     ctx: _Ctx,
@@ -914,8 +1223,12 @@ _CLAIM_FIELDS = ["claim_id", "customer_id", "policy_id", "vehicle_id",
                  "hospital_id", "repair_shop_id", "account_id", "incident_date",
                  "report_date", "incident_type", "incident_location",
                  "claimed_amount", "paid_amount", "claim_status", "fraud_label",
-                 "witness_claim_ids", "created_at", "is_fraud_ring", "ring_id",
-                 "ring_pattern"]
+                 "witness_claim_ids", "created_at",
+                 # ① 캐글 실분포 현실화 속성
+                 "vehicle_category", "accident_area", "fault", "base_policy",
+                 # ② 듀얼 레이어 — 캐글 호환 행동/시계열·범주 속성(속성 ML 적용)
+                 *_KAGGLE_BEHAVIORAL_AXES,
+                 "is_fraud_ring", "ring_id", "ring_pattern"]
 # WP-KR: 브로커/설계사 마스터 + 관계(엣지 소스) CSV
 _BROKER_FIELDS = ["broker_id", "name", "business_reg_no", "phone", "region",
                   "created_at"]
@@ -940,6 +1253,10 @@ class GenResult:
     n_brokered: int = 0
     n_sold_policy: int = 0
     ring_pattern: dict[str, str] = field(default_factory=dict)
+    # ① 배경 단발성 사기 + 청구 단위 전체 사기율(현실화)
+    n_opportunistic_claims: int = 0
+    n_claim_fraud_total: int = 0
+    claim_fraud_rate: float = 0.0
 
 
 def generate(
@@ -970,6 +1287,11 @@ def generate(
     rng = random.Random(seed)
     ctx = _Ctx()
     out = Path(out_dir)
+
+    # 0) ① 캐글 실분포 prior 로드(배경 청구 속성/조건부 사기확률 현실화)
+    ctx.priors = _load_kaggle_priors()
+    # 속성/배경사기 전용 RNG — 메인 스트림과 분리(기존 링 구조 보존). seed 파생.
+    ctx.attr_rng = random.Random(seed + 1)
 
     # 1) 마스터 (병원·정비소·브로커·설계사)
     _gen_hospitals(rng, ctx)
@@ -1010,6 +1332,12 @@ def generate(
         next_cust_idx=next_idx, next_claim_idx=claim_idx,
     )
 
+    # 5.5) ① 배경 단발성(비링) 사기 — 캐글 실 조건부율로 청구 단위 사기율 ~6% 현실화
+    #   전용 attr_rng 사용(메인 스트림 미교란 → 이후 목격/브로커 배경 노이즈 보존).
+    opp = _inject_opportunistic_fraud(
+        ctx.attr_rng, ctx, target_claim_fraud_rate=0.06
+    )
+
     # 6) 정상 단방향 목격 노이즈(우연 — 상호 아님, Q3 미탐지 기대)
     _inject_coincidental_witness(rng, ctx, n_pairs=max(50, n_claims // 200))
 
@@ -1029,10 +1357,12 @@ def generate(
     _write_csv(out / "brokered.csv", ctx.brokered, _BROKERED_FIELDS)
     _write_csv(out / "sold_policy.csv", ctx.sold_policy, _SOLD_POLICY_FIELDS)
 
+    n_claims_total = len(ctx.claims)
+    claim_fraud_total = sum(1 for c in ctx.claims if c["fraud_label"])
     return GenResult(
         out_dir=out,
         n_customers=len(ctx.customers),
-        n_claims=len(ctx.claims),
+        n_claims=n_claims_total,
         n_rings=n_rings,
         n_fraud_claims=n_fraud_claims,
         n_fraud_customers=n_fraud_customers,
@@ -1042,6 +1372,10 @@ def generate(
         n_brokered=len(ctx.brokered),
         n_sold_policy=len(ctx.sold_policy),
         ring_pattern=ring_pattern,
+        n_opportunistic_claims=opp["opportunistic"],
+        n_claim_fraud_total=claim_fraud_total,
+        claim_fraud_rate=round(claim_fraud_total / n_claims_total, 4)
+        if n_claims_total else 0.0,
     )
 
 
@@ -1080,9 +1414,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  브로커/설계사 : {res.n_brokers} / {res.n_agents}")
     print(f"  BROKERED/SOLD : {res.n_brokered:,} / {res.n_sold_policy:,}")
     print(f"  사기 링       : {res.n_rings}")
-    print(f"  사기 청구     : {res.n_fraud_claims:,}")
-    print(f"  사기 고객     : {res.n_fraud_customers:,} "
+    print(f"  링 사기 청구  : {res.n_fraud_claims:,}")
+    print(f"  사기 고객(링) : {res.n_fraud_customers:,} "
           f"(적발률 ≈ {res.n_fraud_customers / max(res.n_customers, 1) * 100:.1f}%)")
+    print("-" * 60)
+    print("  ① 캐글 실분포 현실화(배경 단발성 사기):")
+    print(f"    배경 단발성 사기 청구 : {res.n_opportunistic_claims:,}건")
+    print(f"    청구 단위 전체 사기   : {res.n_claim_fraud_total:,}건 "
+          f"(사기율 {res.claim_fraud_rate*100:.2f}% ← 캐글 5.99% 목표)")
     print("-" * 60)
     # 수법별 링/멤버 분포
     from collections import Counter

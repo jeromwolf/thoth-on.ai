@@ -81,6 +81,108 @@ def _pattern_membership() -> dict[str, list[str]]:
     return {r["pattern"]: r["cids"] for r in rows}
 
 
+@dataclass
+class ClaimFraudSummary:
+    """① 청구 단위 사기 분포 + 그래프 탐지의 한계(정밀도 압박) 요약.
+
+    캐글 실분포 현실화 후, 사기는 두 종류로 나뉜다:
+      · ring 사기  : 한국 수법 5종(공모형) — 그래프로 잡힌다.
+      · 배경 단발성: opportunistic(개인 과장청구) — 공모 네트워크가 없어 그래프
+                     신호가 약하다. 캐글 6% 배경 분포의 본체.
+    """
+
+    total_claims: int
+    fraud_claims: int
+    claim_fraud_rate: float
+    ring_fraud_claims: int
+    opportunistic_fraud_claims: int
+    # 배경 단발성 사기를 보유한 고객 중 그래프 탐지(임계 이상)로 잡힌 비율
+    opportunistic_customers: int
+    opportunistic_detected: int
+    opportunistic_recall: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.__dict__.copy()
+
+
+def claim_fraud_summary(
+    *,
+    threshold: float = scoring.DEFAULT_ALERT_THRESHOLD,
+    _risks: dict[str, scoring.CustomerRisk] | None = None,
+) -> ClaimFraudSummary:
+    """청구 단위 사기 분포와 배경 단발성 사기의 그래프 탐지 한계를 측정한다.
+
+    ground truth 링(``is_fraud_ring``)은 그대로 두고, ``Claim.fraud_label`` 기준
+    청구 단위 전체 사기율과 그 구성(ring vs opportunistic)을 집계한다. 또한
+    배경 단발성 사기 청구를 보유한 **정상(비링) 고객**이 그래프 탐지로 얼마나
+    잡히는지(opportunistic_recall) 측정 — 낮을수록 "그래프로 못 잡는 배경 사기"가
+    정밀도/재현율을 압박함을 정량화한다.
+    """
+    total = db.run("MATCH (cl:Claim) RETURN count(*) AS n")[0]["n"]
+    fraud = db.run(
+        "MATCH (cl:Claim) WHERE cl.fraud_label RETURN count(*) AS n"
+    )[0]["n"]
+    ring = db.run(
+        "MATCH (cl:Claim) WHERE cl.fraud_label AND coalesce(cl.is_fraud_ring, false) "
+        "RETURN count(*) AS n"
+    )[0]["n"]
+    opp = db.run(
+        "MATCH (cl:Claim) WHERE cl.fraud_label "
+        "AND NOT coalesce(cl.is_fraud_ring, false) RETURN count(*) AS n"
+    )[0]["n"]
+
+    # 배경 단발성 사기 청구를 가진 '비링' 고객 집합.
+    opp_cust_rows = db.run(
+        """
+        MATCH (c:Customer)-[:FILED]->(cl:Claim)
+        WHERE cl.fraud_label AND NOT coalesce(cl.is_fraud_ring, false)
+              AND NOT coalesce(c.is_fraud_ring, false)
+        RETURN collect(DISTINCT c.customer_id) AS cids
+        """
+    )
+    opp_cust_ids = set(opp_cust_rows[0]["cids"]) if opp_cust_rows else set()
+
+    risks = _risks if _risks is not None else scoring.score_customers()
+    detected = sum(
+        1 for cid in opp_cust_ids
+        if cid in risks and risks[cid].score >= threshold
+    )
+    n_opp_cust = len(opp_cust_ids)
+
+    return ClaimFraudSummary(
+        total_claims=int(total),
+        fraud_claims=int(fraud),
+        claim_fraud_rate=round(fraud / total, 4) if total else 0.0,
+        ring_fraud_claims=int(ring),
+        opportunistic_fraud_claims=int(opp),
+        opportunistic_customers=n_opp_cust,
+        opportunistic_detected=detected,
+        opportunistic_recall=round(detected / n_opp_cust, 4) if n_opp_cust else 0.0,
+    )
+
+
+def _print_claim_summary(s: ClaimFraudSummary) -> None:
+    line = "=" * 60
+    print()
+    print(line)
+    print(" ① 청구 단위 사기 분포 (캐글 5.99% 실분포 현실화)")
+    print(line)
+    print(f"  전체 청구              : {s.total_claims:,}건")
+    print(f"  사기 청구(fraud_label) : {s.fraud_claims:,}건 "
+          f"(청구 사기율 {s.claim_fraud_rate*100:.2f}%)")
+    print(f"   ├ ring 공모형(그래프) : {s.ring_fraud_claims:,}건")
+    print(f"   └ 배경 단발성(opportunistic): {s.opportunistic_fraud_claims:,}건")
+    print("-" * 60)
+    print("  배경 단발성 사기의 그래프 탐지 한계(정밀도 압박):")
+    print(f"    배경 사기 보유 비링 고객 : {s.opportunistic_customers:,}명")
+    print(f"    그 중 그래프 탐지 적중   : {s.opportunistic_detected:,}명 "
+          f"(recall {s.opportunistic_recall*100:.1f}%)")
+    print("    → 공모 네트워크가 없는 배경 사기는 그래프로 거의 못 잡는다.")
+    print("      청구 단위 사기율을 현실(6%)로 올리면 '못 잡는 사기'가 늘어")
+    print("      청구 단위 정밀도/재현율 압박이 커진다(과장 없는 한계).")
+    print(line)
+
+
 def evaluate(
     *,
     threshold: float = scoring.DEFAULT_ALERT_THRESHOLD,
@@ -288,6 +390,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="GDS 미사용 vs 사용 재현율/정밀도 비교 출력")
     p.add_argument("--compare-embedding", action="store_true",
                    help="룰만 vs 룰+임베딩(FR-3.6) 재현율/정밀도/수법별 비교 출력")
+    p.add_argument("--claim-summary", action="store_true",
+                   help="① 청구 단위 사기 분포 + 배경 단발성 사기의 그래프 탐지 한계")
     return p.parse_args(argv)
 
 
@@ -309,6 +413,11 @@ def main(argv: list[str] | None = None) -> int:
         labels.append("임베딩")
     _print_report(res, label="+".join(labels) if labels else "룰")
     _print_pattern_recall(res)
+
+    # 1.5) ① 청구 단위 사기 분포 + 배경 단발성 사기 탐지 한계
+    if args.claim_summary:
+        cs = claim_fraud_summary(threshold=args.threshold)
+        _print_claim_summary(cs)
 
     # 2) 임계치 스윕
     if args.sweep:

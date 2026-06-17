@@ -41,6 +41,21 @@ from thoth import db
 
 BATCH_SIZE = 1000
 
+# ② 듀얼 레이어 — 캐글 호환 행동/시계열·범주 청구 속성(속성 ML 적용용).
+#   합성 generator(_KAGGLE_BEHAVIORAL_AXES)와 컬럼명을 일치시켜 Claim 노드에 적재한다.
+_KAGGLE_CLAIM_ATTR_COLS = [
+    "make", "sex", "marital_status", "agent_type", "policy_type",
+    "days_policy_accident", "days_policy_claim", "past_number_of_claims",
+    "age_of_vehicle", "age_of_policy_holder", "vehicle_price", "deductible",
+    "driver_rating", "police_report_filed", "witness_present",
+    "number_of_cars", "number_of_suppliments", "address_change_claim",
+    "month_claimed",
+]
+# Cypher SET 절 조각(c.<col> = row.<col>, ...) — _load_claims 에서 결합.
+_KAGGLE_CLAIM_ATTR_SET = "".join(
+    f"        c.{col} = row.{col},\n" for col in _KAGGLE_CLAIM_ATTR_COLS
+)
+
 
 # ==================================================================
 # 소스 로딩 (CSV / Parquet)
@@ -191,6 +206,13 @@ def _load_claims(sess: Any, rows: list[dict], batch_size: int) -> int:
             "is_fraud_ring": _parse_bool(r.get("is_fraud_ring")),
             "ring_id": r.get("ring_id") or "",
             "ring_pattern": r.get("ring_pattern") or "",
+            # 캐글(fraud_oracle) 실분포에서 가져온 현실화 속성(①). 합성 prior 반영.
+            "vehicle_category": r.get("vehicle_category") or "",
+            "accident_area": r.get("accident_area") or "",
+            "fault": r.get("fault") or "",
+            "base_policy": r.get("base_policy") or "",
+            # ② 듀얼 레이어 — 캐글 호환 행동/시계열·범주 속성(속성 ML 적용용).
+            **{k: (r.get(k) or "") for k in _KAGGLE_CLAIM_ATTR_COLS},
             "created_at": _nz(r.get("created_at")),
         })
     cypher = """
@@ -208,6 +230,11 @@ def _load_claims(sess: Any, rows: list[dict], batch_size: int) -> int:
         c.is_fraud_ring = row.is_fraud_ring,
         c.ring_id = row.ring_id,
         c.ring_pattern = row.ring_pattern,
+        c.vehicle_category = row.vehicle_category,
+        c.accident_area = row.accident_area,
+        c.fault = row.fault,
+        c.base_policy = row.base_policy,
+""" + _KAGGLE_CLAIM_ATTR_SET + """
         c.created_at = row.created_at
     """
     return _run_batched(sess, cypher, payload, batch_size=batch_size)
