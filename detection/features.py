@@ -28,6 +28,10 @@
         · max_witness_cluster_size  교차 목격 군집 최대 인원
         · n_focused_hotspot         집중 핫스팟(비인기 병원+정비소·소수·시간군집) 수
         · n_collusion_hotspot       담합 핫스팟(단일 collision·매우 짧은 기간) 수
+        · n_fake_admission_star     허위입원 star(비인기 병원 환자 burst) 수 (WP-KR)
+        · n_broker_hub              브로커 허브(한 병원 집중 알선) 소속 수 (WP-KR)
+        · n_agent_hub               설계사 허브(공통 수취계좌 집중) 소속 수 (WP-KR)
+        · n_repair_overbill         정비비 과다청구(정비소+금액 이상) 소속 수 (WP-KR)
         · rule_score                기존 수동 가중합 룰 스코어(0~100) — 종합 신호
         · n_signal_groups           충족한 강신호 그룹 종 수(SHARED/WITNESS/...)
     GDS 신호 (detection.gds_pipeline write 속성):
@@ -66,6 +70,11 @@ FEATURE_NAMES: list[str] = [
     # 룰 — 핫스팟
     "n_focused_hotspot",
     "n_collusion_hotspot",
+    # 룰 — WP-KR 한국 수법(star/허브/과다청구)
+    "n_fake_admission_star",
+    "n_broker_hub",
+    "n_agent_hub",
+    "n_repair_overbill",
     # 룰 — 종합
     "rule_score",
     "n_signal_groups",
@@ -263,6 +272,20 @@ def build_features(
     for hs in detect.run_collusion_hotspots():
         for cid in hs["customer_ids"]:
             _f(cid)["n_collusion_hotspot"] += 1.0
+
+    # --- 룰 WP-KR 한국 수법(star/브로커허브/설계사허브/정비비 과다) ---
+    for st in detect.run_admission_stars():
+        for cid in st["customer_ids"]:
+            _f(cid)["n_fake_admission_star"] += 1.0
+    for hub in detect.run_broker_hubs():
+        for cid in hub["customer_ids"]:
+            _f(cid)["n_broker_hub"] += 1.0
+    for hub in detect.run_agent_hubs():
+        for cid in hub["customer_ids"]:
+            _f(cid)["n_agent_hub"] += 1.0
+    for ob in detect.run_repair_overbills():
+        for cid in ob["customer_ids"]:
+            _f(cid)["n_repair_overbill"] += 1.0
 
     # --- GDS 속성(커뮤니티 위험밀도·PageRank) ---
     for cid, props in _gds_props().items():

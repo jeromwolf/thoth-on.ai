@@ -241,15 +241,16 @@ def _print_pattern_recall(res: EvalResult) -> None:
     print()
     print(" 수법(ring_pattern)별 탐지율 — 임계치 %.0f 기준" % res.threshold)
     print("-" * 60)
-    print(f"  {'수법':<14} {'멤버':>6} {'탐지':>6} {'재현율':>8}")
+    print(f"  {'수법':<22} {'멤버':>6} {'탐지':>6} {'재현율':>8}")
     print("-" * 60)
-    # 보기 좋은 순서
-    order = ["perfect", "account_only", "witness_only", "hotspot_only", "weak"]
+    # 보기 좋은 순서(한국 수법 5종)
+    order = ["fake_admission_star", "collision_ring", "repair_overbill",
+             "agent_fraud", "driver_swap"]
     keys = [k for k in order if k in res.pattern_recall]
     keys += [k for k in res.pattern_recall if k not in order]
     for pat in keys:
         d = res.pattern_recall[pat]
-        print(f"  {pat:<14} {int(d['total']):>6} {int(d['detected']):>6} {d['recall']:>8.3f}")
+        print(f"  {pat:<22} {int(d['total']):>6} {int(d['detected']):>6} {d['recall']:>8.3f}")
     print("-" * 60)
 
 
@@ -351,12 +352,13 @@ def main(argv: list[str] | None = None) -> int:
               f"{emb.detected_normal:>5}")
         print("-" * 60)
         # 수법별 회수 변화
-        print(f"  {'수법':<14} {'룰만':>8} {'룰+임베딩':>10} {'증감':>6}")
-        order = ["perfect", "account_only", "witness_only", "hotspot_only", "weak"]
+        print(f"  {'수법':<22} {'룰만':>8} {'룰+임베딩':>10} {'증감':>6}")
+        order = ["fake_admission_star", "collision_ring", "repair_overbill",
+                 "agent_fraud", "driver_swap"]
         for pat in order:
             b = base.pattern_recall.get(pat, {}).get("recall", 0.0)
             e = emb.pattern_recall.get(pat, {}).get("recall", 0.0)
-            print(f"  {pat:<14} {b:>8.3f} {e:>10.3f} {e - b:>+6.3f}")
+            print(f"  {pat:<22} {b:>8.3f} {e:>10.3f} {e - b:>+6.3f}")
         print("-" * 60)
 
     return 0

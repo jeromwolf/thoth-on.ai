@@ -26,6 +26,9 @@ NODE_LABELS_EXPECTED = {
     "Hospital",
     "RepairShop",
     "Address",
+    # WP-KR 한국 조직형 사기 확장 노드
+    "Broker",
+    "Agent",
 }
 
 # 각 노드 레이블에 대해 UNIQUE 제약이 반드시 존재해야 하는 (label, property) 쌍.
@@ -40,6 +43,9 @@ UNIQUE_CONSTRAINTS_EXPECTED: set[tuple[str, str]] = {
     ("Address",    "address_id"),
     ("Hospital",   "hospital_id"),
     ("RepairShop", "shop_id"),
+    # WP-KR 한국 조직형 사기 확장 노드 제약
+    ("Broker",     "broker_id"),
+    ("Agent",      "agent_id"),
 }
 
 # 존재해야 하는 인덱스 이름 집합 (schema.cypher 에 정의된 명칭).
@@ -54,6 +60,9 @@ INDEXES_EXPECTED = {
     "vehicle_plate",
     "hospital_name",
     "repairshop_name",
+    # WP-KR
+    "broker_name",
+    "agent_name",
 }
 
 
@@ -159,6 +168,9 @@ EDGE_TYPES_EXPECTED = [
     "OWNS",
     "HAS_PHONE",
     "WITNESSED_BY",
+    # WP-KR 한국 조직형 사기 확장 엣지
+    "BROKERED",
+    "SOLD_POLICY",
 ]
 
 

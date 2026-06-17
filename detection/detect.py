@@ -60,6 +60,26 @@ DEFAULT_COLLUSION_MAX_CUSTOMERS = 4
 POPULAR_HOSPITAL_IDS = [f"HOSP-{i:04d}" for i in range(1, 7)]
 POPULAR_SHOP_IDS = [f"RSH-{i:04d}" for i in range(1, 9)]
 
+# ------------------------------------------------------------------
+# WP-KR 한국 실제 사기 수법 탐지 임계 — synth_generator 주입 구조 근거.
+#   fake_admission_star: 비인기 병원 1곳에 소수~다수 환자(>=5) 짧은 기간 집중 +
+#       브로커 알선 허브. → 병원 star 신호 + 브로커 허브 신호.
+#   agent_fraud        : 설계사 1명이 다수 계약 모집(>=5) + 다수 고객 청구금이
+#       소수 공통 계좌로 집중. → 설계사 허브 신호.
+#   repair_overbill    : 비인기 정비소 1곳에 다수 고객(>=4) + 청구금액 이상(p99↑).
+# ------------------------------------------------------------------
+DEFAULT_STAR_MIN_PATIENTS = 10        # 허위입원 star: 시간창 내 환자 집중 최소
+DEFAULT_STAR_CLUSTER_DAYS = 28        # star 시간창(동시 모객 — 0~24일 주입 구조)
+STAR_EXCESS_FACTOR = 3.0              # 시간창 환자수가 연중 기대밀도의 N배 초과 시 star
+                                      #   (병원 단독 burst 신호는 corroborating — 주
+                                      #    신호는 브로커 허브. 정상 트래픽이 균등해
+                                      #    병원 단독 분리는 한계가 있음 — 정직 보고)
+DEFAULT_BROKER_MIN_CUSTOMERS = 12     # 브로커 허브: 한 병원 집중 알선 고객 최소 수
+                                      #   (정상 브로커 병원당 최대 ~11명과 분리)
+DEFAULT_AGENT_MIN_SHARED_CUSTOMERS = 4  # 설계사+공통계좌로 묶인 고객 최소 수(가로채기)
+DEFAULT_OVERBILL_MIN_CUSTOMERS = 4    # 정비비 과다청구: 정비소 반복 고객 최소
+DEFAULT_OVERBILL_AMOUNT = 11_000_000  # 정비비 과다청구 금액 임계(정상 0.8~8M 상회)
+
 
 # ==================================================================
 # Q1 — 공유 엔티티 탐지 (FR-3.1)  — 정상(가족) 공유 구분 컨텍스트 포함
@@ -435,3 +455,207 @@ def run_crash_ring_pairs() -> list[dict[str, Any]]:
         ``claim_b``, ``ring_a``, ``ring_b``.
     """
     return db.run(_Q3_PAIRS)
+
+
+# ==================================================================
+# WP-KR — 한국 실제 사기 수법 탐지 (Q4~Q7)
+# ==================================================================
+# Q4 허위입원 star : 비인기 병원에 소수~다수 환자가 짧은 기간 집중(나이롱 환자).
+# Q5 브로커 허브   : 한 브로커가 다수 고객을 알선(BROKERED).
+# Q6 설계사 허브   : 한 설계사가 다수 계약 모집(SOLD_POLICY) + 고객 청구금이 소수
+#                    공통 계좌로 집중(보험금 가로채기).
+# Q7 정비비 과다청구: 비인기 정비소에 다수 고객 + 청구금액 이상(정상 상한 초과).
+# 모두 distinct 고객 기준 + 비인기(정상 baseline 제외) 조건으로 정상 운영량을 배제.
+# ==================================================================
+
+# 비인기 병원별 (환자, 청구일) 목록을 가져와 Python 에서 "가장 빽빽한 시간창"을
+# 찾는다. 정상 청구는 연중 분산되어 어떤 21~28일 창에도 소수만 모이지만, 허위입원
+# star 는 0~24일에 10~30명이 몰리므로 한 시간창에 비정상적으로 많은 distinct 환자가
+# 잡힌다(나이롱 환자 동시 모객). 단순 "병원 총 환자수"는 정상 병원도 100+ 이라
+# 신호가 안 되므로 반드시 시간창 집중으로 본다.
+_Q4_STAR_RAW = """
+MATCH (c:Customer)-[:FILED]->(cl:Claim)-[:TREATED_AT]->(h:Hospital)
+WHERE NOT h.hospital_id IN $popular_hospitals
+  AND cl.incident_date IS NOT NULL
+RETURN h.hospital_id AS hospital_id, h.name AS name,
+       c.customer_id AS customer_id, date(cl.incident_date) AS dt
+"""
+
+# 브로커 허브(허위입원 조직형) — 핵심 판별: 알선 고객이 **한 병원에 집중**된다.
+#   정상 브로커는 무관한 다수 고객을 알선해 병원이 분산되지만(한 병원당 소수),
+#   사기 브로커는 환자 전원을 한 병원에 몰아넣는다(나이롱 환자). 따라서 "같은 병원
+#   알선 고객 수 >= min_customers" 인 (브로커, 병원) 쌍의 고객만 신호로 본다.
+_Q5_BROKER = """
+MATCH (b:Broker)-[:BROKERED]->(c:Customer)-[:FILED]->(:Claim)-[:TREATED_AT]->(h:Hospital)
+WITH b, h, collect(DISTINCT c) AS customers
+WHERE size(customers) >= $min_customers
+RETURN b.broker_id AS entity_id,
+       b.name AS entity_name,
+       h.hospital_id AS hospital_id,
+       size(customers) AS num_customers,
+       [x IN customers | x.customer_id] AS customer_ids
+ORDER BY num_customers DESC
+"""
+
+# 설계사 허브(가로채기): 한 설계사가 모집한 다수 계약자(고객)의 청구금이 **하나의
+# 공통 계좌로 집중**된다. 정상 설계사는 다수 계약을 모집하지만 청구금은 각 고객
+# 고유 계좌로 분산된다(한 계좌당 1~2명). 사기 설계사는 한 계좌가 다수(>=min) 고객의
+# 청구금을 수취한다(가로채기). 따라서 "설계사+공통계좌" 로 묶인 고객이 min 이상인
+# (설계사, 계좌) 쌍의 고객만 신호로 본다.
+_Q6_AGENT = """
+MATCH (a:Agent)-[:SOLD_POLICY]->(:Policy)<-[:HOLDS]-(c:Customer)
+      -[:FILED]->(:Claim)-[:PAID_TO]->(acc:Account)
+WITH a, acc, collect(DISTINCT c) AS customers
+WHERE size(customers) >= $min_shared_customers
+RETURN a.agent_id AS entity_id,
+       a.name AS entity_name,
+       acc.account_no AS account_no,
+       size(customers) AS num_customers,
+       [x IN customers | x.customer_id] AS customer_ids
+ORDER BY num_customers DESC
+"""
+
+_Q7_OVERBILL = """
+MATCH (c:Customer)-[:FILED]->(cl:Claim)-[:REPAIRED_AT]->(s:RepairShop)
+WHERE NOT s.shop_id IN $popular_shops
+  AND cl.claimed_amount IS NOT NULL
+  AND cl.claimed_amount >= $amount
+WITH s, collect(DISTINCT c) AS customers,
+     avg(cl.claimed_amount) AS avg_amount, count(DISTINCT cl) AS num_claims
+WHERE size(customers) >= $min_customers
+RETURN s.shop_id AS entity_id,
+       s.name AS entity_name,
+       size(customers) AS num_customers,
+       num_claims,
+       avg_amount,
+       [x IN customers | x.customer_id] AS customer_ids
+ORDER BY num_customers DESC, avg_amount DESC
+"""
+
+
+def run_admission_stars(
+    *,
+    min_patients: int = DEFAULT_STAR_MIN_PATIENTS,
+    cluster_days: int = DEFAULT_STAR_CLUSTER_DAYS,
+) -> list[dict[str, Any]]:
+    """Q4 허위입원 조직형(star) — 비인기 병원의 시간창 집중 환자 군집을 반환한다.
+
+    인기 대형 병원(정상 baseline)을 제외하고, 각 병원에서 ``cluster_days`` 길이의
+    슬라이딩 시간창 중 distinct 환자가 ``min_patients`` 명 이상 몰린 창을 찾아
+    그 창의 환자를 star 군집으로 반환한다. 정상 청구는 연중 분산되어 어떤 시간창에도
+    소수만 모이므로 정상 병원은 잡히지 않는다(나이롱 환자 동시 모객 특성 포착).
+
+    Returns:
+        dict 리스트. 키: ``entity_type``, ``entity_id``, ``entity_name``,
+        ``num_customers``, ``customer_ids``, ``span_days``.
+    """
+    rows = db.run(_Q4_STAR_RAW, popular_hospitals=POPULAR_HOSPITAL_IDS)
+
+    # 병원별로 (ordinal_day, customer_id) 수집
+    by_hosp: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        h = r["hospital_id"]
+        d = by_hosp.setdefault(h, {"name": r["name"], "events": []})
+        dt = r["dt"]
+        # neo4j Date → ordinal
+        ordinal = dt.to_native().toordinal() if hasattr(dt, "to_native") else dt.toordinal()
+        d["events"].append((ordinal, r["customer_id"]))
+
+    results: list[dict[str, Any]] = []
+    for hid, d in by_hosp.items():
+        events = sorted(d["events"])
+        total = len({c for _, c in events})
+        if total < min_patients:
+            continue
+        # 병원의 연중 기대 밀도(baseline) — 정상은 청구가 연중 균등 분산.
+        #   기대 창내 환자 ≈ total * (cluster_days / 365).
+        # star 는 이 기대를 크게 초과하는 burst 를 만든다 → 초과분만 신호.
+        baseline = total * (cluster_days / 365.0)
+        threshold = max(min_patients, baseline * STAR_EXCESS_FACTOR)
+
+        # 슬라이딩 시간창: 각 시작점에서 cluster_days 이내 distinct 환자 최대.
+        best_cids: set[str] = set()
+        n = len(events)
+        for i in range(n):
+            window_cids: set[str] = set()
+            start_day = events[i][0]
+            k = i
+            while k < n and events[k][0] - start_day <= cluster_days:
+                window_cids.add(events[k][1])
+                k += 1
+            if len(window_cids) > len(best_cids):
+                best_cids = window_cids
+        if len(best_cids) >= threshold:
+            results.append({
+                "entity_type": "FAKE_ADMISSION_STAR",
+                "entity_id": hid,
+                "entity_name": d["name"],
+                "num_customers": len(best_cids),
+                "customer_ids": sorted(best_cids),
+                "span_days": cluster_days,
+            })
+    results.sort(key=lambda x: x["num_customers"], reverse=True)
+    return results
+
+
+def run_broker_hubs(
+    *,
+    min_customers: int = DEFAULT_BROKER_MIN_CUSTOMERS,
+) -> list[dict[str, Any]]:
+    """Q5 브로커 허브 — 다수 고객을 알선한 브로커를 반환한다(BROKERED 다수).
+
+    Returns:
+        dict 리스트. 키: ``entity_id``, ``entity_name``, ``num_customers``,
+        ``customer_ids``.
+    """
+    if not _has_label("Broker"):
+        return []
+    return db.run(_Q5_BROKER, min_customers=min_customers)
+
+
+def run_agent_hubs(
+    *,
+    min_shared_customers: int = DEFAULT_AGENT_MIN_SHARED_CUSTOMERS,
+) -> list[dict[str, Any]]:
+    """Q6 설계사 허브 — 모집 고객의 청구금이 한 공통 계좌로 집중된 설계사(가로채기).
+
+    정상 설계사(고객별 분산 계좌)는 한 계좌에 묶이는 고객이 소수(1~2명)라 제외된다.
+    사기 설계사는 한 계좌가 다수(>=min) 모집 고객의 청구금을 수취한다.
+
+    Returns:
+        dict 리스트. 키: ``entity_id``, ``entity_name``, ``account_no``,
+        ``num_customers``, ``customer_ids``.
+    """
+    if not _has_label("Agent"):
+        return []
+    return db.run(_Q6_AGENT, min_shared_customers=min_shared_customers)
+
+
+def run_repair_overbills(
+    *,
+    min_customers: int = DEFAULT_OVERBILL_MIN_CUSTOMERS,
+    amount: float = DEFAULT_OVERBILL_AMOUNT,
+) -> list[dict[str, Any]]:
+    """Q7 정비비 과다청구 — 비인기 정비소에 다수 고객 + 청구금액 이상 군집.
+
+    Returns:
+        dict 리스트. 키: ``entity_id``, ``entity_name``, ``num_customers``,
+        ``num_claims``, ``avg_amount``, ``customer_ids``.
+    """
+    return db.run(
+        _Q7_OVERBILL,
+        popular_shops=POPULAR_SHOP_IDS,
+        min_customers=min_customers,
+        amount=amount,
+    )
+
+
+def _has_label(label: str) -> bool:
+    """그래프에 주어진 노드 레이블이 존재하는지(없으면 신규 노드 미적재 데이터)."""
+    try:
+        rows = db.run(
+            "CALL db.labels() YIELD label RETURN collect(label) AS labels"
+        )
+    except Exception:
+        return False
+    return bool(rows and label in (rows[0].get("labels") or []))

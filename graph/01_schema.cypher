@@ -14,6 +14,8 @@
 //   Phone       : 전화번호 (공유 전화 탐지)
 //   Hospital    : 의료기관
 //   RepairShop  : 자동차 정비소
+//   Broker      : 사기 알선자/브로커 (한국 조직형 사기 — WP-KR 확장)
+//   Agent       : 보험설계사 (설계사 개입 사기 — WP-KR 확장)
 //
 // [엣지 온톨로지]
 //   (Customer)-[:FILED]->(Claim)          청구인 → 청구 건
@@ -27,6 +29,8 @@
 //   (Customer)-[:OWNS]->(Vehicle)         고객 → 소유 차량
 //   (Customer)-[:HAS_PHONE]->(Phone)      고객 → 전화번호
 //   (Claim)-[:WITNESSED_BY]->(Customer)   청구 → 목격자(제3자 고객)
+//   (Broker)-[:BROKERED]->(Customer)      브로커 → 알선 고객 (조직형 사기 허브)
+//   (Agent)-[:SOLD_POLICY]->(Policy)      설계사 → 모집 계약 (설계사 개입 허브)
 // ============================================================
 
 // ------------------------------------------------------------
@@ -62,6 +66,14 @@ FOR (n:Hospital) REQUIRE n.hospital_id IS UNIQUE;
 CREATE CONSTRAINT repairshop_id_unique IF NOT EXISTS
 FOR (n:RepairShop) REQUIRE n.shop_id IS UNIQUE;
 
+// WP-KR: 한국 조직형 사기 수법 확장 — 브로커/설계사 허브 노드.
+// 기존 노드/제약은 변경 없이 추가만 한다(멱등).
+CREATE CONSTRAINT broker_id_unique IF NOT EXISTS
+FOR (n:Broker) REQUIRE n.broker_id IS UNIQUE;
+
+CREATE CONSTRAINT agent_id_unique IF NOT EXISTS
+FOR (n:Agent) REQUIRE n.agent_id IS UNIQUE;
+
 // ------------------------------------------------------------
 // 인덱스 — 자주 조회되는 속성
 // ------------------------------------------------------------
@@ -96,3 +108,10 @@ FOR (n:Hospital) ON (n.name);
 
 CREATE INDEX repairshop_name IF NOT EXISTS
 FOR (n:RepairShop) ON (n.name);
+
+// WP-KR: 브로커/설계사 조회 인덱스
+CREATE INDEX broker_name IF NOT EXISTS
+FOR (n:Broker) ON (n.name);
+
+CREATE INDEX agent_name IF NOT EXISTS
+FOR (n:Agent) ON (n.name);

@@ -115,10 +115,13 @@ def test_rings_form_single_louvain_community(pipeline_run) -> None:
 
 
 def test_ring_members_share_community_id(pipeline_run) -> None:
-    """계좌/교차목격 공유 수법 링은 멤버 다수가 동일 louvain_community 를 가져야 한다.
+    """공통 계좌/교차목격으로 묶이는 수법 링은 멤버 다수가 동일 louvain_community 를 가져야 한다.
 
-    [현실판] hotspot_only/weak 수법은 구조 연결이 없어 멤버가 흩어진다. 따라서
-    구조 연결 수법(perfect/account_only/witness_only)에 한해 응집도를 검증한다.
+    [한국 수법판] 커뮤니티 프로젝션은 Customer/Claim/Account(+FILED/PAID_TO/
+    WITNESSED_BY)만 포함한다(브로커/설계사 허브 엣지는 정상 다수를 거대 커뮤니티로
+    병합하므로 제외 — 룰 허브 탐지로 처리). 따라서 공통 계좌(agent_fraud)·교차목격
+    (collision_ring)로 구조 연결되는 수법에 한해 응집도를 검증한다. 공유 신호가 없는
+    fake_admission_star(브로커 허브)·driver_swap·repair_overbill 은 흩어지는 게 정상.
     ground truth(ring_id/ring_pattern)는 결과 그룹핑에만 쓰며 알고리즘 입력엔 안 쓴다.
     """
     rows = db.run(
@@ -126,7 +129,7 @@ def test_ring_members_share_community_id(pipeline_run) -> None:
         MATCH (c:Customer)
         WHERE c.ring_id IS NOT NULL AND c.ring_id <> ''
           AND coalesce(c.ring_pattern, '') IN
-              ['perfect', 'account_only', 'witness_only']
+              ['collision_ring', 'agent_fraud']
         WITH c.ring_id AS ring,
              c.louvain_community AS comm,
              count(*) AS cnt

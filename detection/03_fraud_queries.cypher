@@ -8,12 +8,16 @@
 //    (db.apply_file 의 단순 세미콜론 분리기로는 파라미터/주석 처리가
 //     제한되므로, 운영 실행은 detect.py 를 통해 한다.)
 //
-// [데이터 사실 — 주입 링 패턴 (ingest/synth_generator.py)]
-//   · 각 crash-for-cash 링은 동일 Account(account_no)를 공유한다.
-//   · 링 멤버 청구는 동일 Hospital + 동일 RepairShop 으로 집중된다.
-//   · 링 멤버는 서로의 사고를 양방향 교차 목격한다(WITNESSED_BY 상호).
-//   · ground truth: Customer.is_fraud_ring / Customer.ring_id,
-//                   Claim.is_fraud_ring / Claim.ring_id.
+// [데이터 사실 — 한국 실제 사기 수법 5종 (ingest/synth_generator.py, WP-KR)]
+//   · fake_admission_star : 브로커 1 → 비인기 병원 1 → 환자 10~30명 방사형.
+//        BROKERED 허브 + 병원 환자 집중. (Q5 브로커 허브가 핵심 신호)
+//   · collision_ring      : 운전자 3~5명 + 공통 RepairShop + 공통 Account +
+//        상호 WITNESSED_BY 교차목격. (기존 Q1/Q3 신호)
+//   · repair_overbill     : 비인기 정비소 ↔ 다수 고객 반복 + 청구금액 이상. (Q7)
+//   · agent_fraud         : 설계사 1 → 다수 Policy + 청구금이 공통 Account 집중. (Q6)
+//   · driver_swap         : 같은 Vehicle(vin)·사고에 운전자 교체/동승자 다수 청구.
+//        (룰은 약함 — 임베딩 비지도 클리크 E7 차량 동행으로 회수)
+//   · ground truth: Customer/Claim.is_fraud_ring / ring_id / ring_pattern.
 // ============================================================
 
 
@@ -227,3 +231,46 @@ RETURN cust.customer_id AS seed_customer,
        members,
        size(members) AS cluster_size
 ORDER BY cluster_size DESC, seed_customer;
+
+
+// ------------------------------------------------------------
+// Q4~Q7 — 한국 실제 사기 수법 (WP-KR) — detection/detect.py 가 실행
+// 정상 배경(인기 병원·정비소·정상 브로커/설계사)을 배제하고 조직형 사기 허브를 잡는다.
+// ------------------------------------------------------------
+
+// Q4 허위입원 star: 비인기 병원의 슬라이딩 시간창(28일) 내 환자 집중(연중 기대밀도
+//   초과 burst). 정상 트래픽이 균등해 단독 분리는 한계 → corroborating 약신호.
+//   (Python 슬라이딩 윈도우 — detect.run_admission_stars)
+MATCH (c:Customer)-[:FILED]->(cl:Claim)-[:TREATED_AT]->(h:Hospital)
+WHERE NOT h.hospital_id IN $popular_hospitals AND cl.incident_date IS NOT NULL
+RETURN h.hospital_id, h.name, c.customer_id, date(cl.incident_date);
+
+// Q5 브로커 허브(허위입원 조직형 핵심): 한 브로커가 **한 병원에** 다수(>=12) 고객을
+//   알선. 정상 브로커는 병원이 분산(병원당 <=11)되어 제외 — 정밀 ~1.0.
+MATCH (b:Broker)-[:BROKERED]->(c:Customer)-[:FILED]->(:Claim)-[:TREATED_AT]->(h:Hospital)
+WITH b, h, collect(DISTINCT c) AS customers
+WHERE size(customers) >= $broker_min_customers
+RETURN b.broker_id, h.hospital_id, size(customers) AS num_customers,
+       [x IN customers | x.customer_id] AS customer_ids
+ORDER BY num_customers DESC;
+
+// Q6 설계사 허브(가로채기): 한 설계사의 모집 고객 청구금이 **한 공통 계좌로 집중**
+//   (>=4명). 정상 설계사는 고객별 분산 계좌(계좌당 1~2명) → 제외. 정밀 ~1.0.
+MATCH (a:Agent)-[:SOLD_POLICY]->(:Policy)<-[:HOLDS]-(c:Customer)
+      -[:FILED]->(:Claim)-[:PAID_TO]->(acc:Account)
+WITH a, acc, collect(DISTINCT c) AS customers
+WHERE size(customers) >= $agent_min_shared_customers
+RETURN a.agent_id, acc.account_no, size(customers) AS num_customers,
+       [x IN customers | x.customer_id] AS customer_ids
+ORDER BY num_customers DESC;
+
+// Q7 정비비 과다청구: 비인기 정비소에 다수(>=4) 고객 + 청구금액 이상(>= 1100만원,
+//   정상 0.8~8M 상회). 정상 고가 수리 혼입 가능 → corroborating(HOTSPOT 그룹).
+MATCH (c:Customer)-[:FILED]->(cl:Claim)-[:REPAIRED_AT]->(s:RepairShop)
+WHERE NOT s.shop_id IN $popular_shops
+  AND cl.claimed_amount >= $overbill_amount
+WITH s, collect(DISTINCT c) AS customers, avg(cl.claimed_amount) AS avg_amount
+WHERE size(customers) >= $overbill_min_customers
+RETURN s.shop_id, size(customers) AS num_customers, avg_amount,
+       [x IN customers | x.customer_id] AS customer_ids
+ORDER BY num_customers DESC;

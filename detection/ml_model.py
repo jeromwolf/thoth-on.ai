@@ -595,15 +595,16 @@ def _print_report(cmp: ThreeWayComparison) -> None:
     # 수법별 탐지율
     print(" 수법(ring_pattern)별 탐지율 — 방식별")
     print("-" * 76)
-    order = ["perfect", "account_only", "witness_only", "hotspot_only", "weak"]
+    order = ["fake_admission_star", "collision_ring", "repair_overbill",
+             "agent_fraud", "driver_swap"]
     methods = ["룰만", "룰+임베딩", "룰+임베딩+ML"]
-    print(f"  {'수법':<14}" + "".join(f"{m:>14}" for m in methods))
+    print(f"  {'수법':<22}" + "".join(f"{m:>14}" for m in methods))
     for pat in order:
         cells = []
         for m in methods:
             d = cmp.pattern_recall.get(m, {}).get(pat, {})
             cells.append(f"{d.get('recall', 0.0):>14.3f}")
-        print(f"  {pat:<14}" + "".join(cells))
+        print(f"  {pat:<22}" + "".join(cells))
     print(line)
 
     # 피처 중요도 상위

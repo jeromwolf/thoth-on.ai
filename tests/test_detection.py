@@ -196,29 +196,24 @@ def test_score_separation_margin(graph) -> None:
 # 수법(ring_pattern)별 탐지율 — 강한 신호 수법은 잘 잡혀야 한다
 # ---------------------------------------------------------------------------
 def test_strong_pattern_detection(graph) -> None:
-    """강신호 수법(perfect/account_only)은 높은 재현율로 잡혀야 한다.
+    """강신호 한국 수법(collision_ring/fake_admission_star)은 높은 재현율로 잡혀야 한다.
 
-    약신호 수법(hotspot_only/weak)은 의도적으로 어렵게 설계됐으므로 낮을 수 있다.
-    여기서는 '탐지가 강신호에 대해 확실히 작동함'만 보장한다.
+    어려운 수법(agent_fraud/driver_swap/repair_overbill)은 공유 신호가 약해 낮을 수
+    있다. 여기서는 '탐지가 강신호 수법에 대해 확실히 작동함'만 보장한다.
     """
     res = evaluate.evaluate()
     pr = res.pattern_recall
     if not pr:
         pytest.skip("ring_pattern 라벨이 없는 데이터(구버전) — skip")
-    # perfect 수법은 거의 전부 잡혀야 한다.
-    if "perfect" in pr:
-        assert pr["perfect"]["recall"] >= 0.8, (
-            f"perfect 수법 재현율 미달: {pr['perfect']['recall']:.3f}"
+    # collision_ring(상호 교차목격 + 공통 정비소/계좌) — 전형적 강신호.
+    if "collision_ring" in pr:
+        assert pr["collision_ring"]["recall"] >= 0.7, (
+            f"collision_ring 수법 재현율 미달: {pr['collision_ring']['recall']:.3f}"
         )
-    # account_only 도 강신호이므로 잘 잡혀야 한다.
-    if "account_only" in pr:
-        assert pr["account_only"]["recall"] >= 0.6, (
-            f"account_only 수법 재현율 미달: {pr['account_only']['recall']:.3f}"
-        )
-    # witness_only(상호 교차목격, 정상 배경 0건)도 단독 알림 가능 수준으로 잡혀야 한다.
-    if "witness_only" in pr:
-        assert pr["witness_only"]["recall"] >= 0.5, (
-            f"witness_only 수법 재현율 미달: {pr['witness_only']['recall']:.3f}"
+    # fake_admission_star(허위입원 — 병원 환자 집중 + 브로커 허브) — 강신호.
+    if "fake_admission_star" in pr:
+        assert pr["fake_admission_star"]["recall"] >= 0.7, (
+            f"fake_admission_star 수법 재현율 미달: {pr['fake_admission_star']['recall']:.3f}"
         )
 
 

@@ -9,9 +9,14 @@ FR-1.3 (가명처리): PII(name/id/email/phone/account_no/holder)는 salt 해시
     Account.account_no(정규화값 저장), Phone.number_hash(sha256 해시 — WP1-6 가명처리),
     Address.address_id(=hash(정규화주소)), Hospital.hospital_id, RepairShop.shop_id
 
-엣지 11종: FILED, HOLDS, COVERS, INVOLVES, TREATED_AT, REPAIRED_AT,
-           PAID_TO, LIVES_AT, OWNS, HAS_PHONE, WITNESSED_BY
+엣지 13종: FILED, HOLDS, COVERS, INVOLVES, TREATED_AT, REPAIRED_AT,
+           PAID_TO, LIVES_AT, OWNS, HAS_PHONE, WITNESSED_BY,
+           BROKERED, SOLD_POLICY (WP-KR 한국 조직형 사기 확장)
 모두 MERGE 로 삽입하여 엣지 중복도 0.
+
+WP-KR 확장 노드: Broker(broker_id), Agent(agent_id) — 한국 실제 사기 수법
+(허위입원 조직형·설계사 개입)의 허브를 표현한다. 소스 brokers.csv/agents.csv 와
+관계 소스 brokered.csv/sold_policy.csv 가 있을 때만 적재한다(없으면 graceful skip).
 
 CLI:
     python -m ingest.loader load <data_dir> [--batch-size N]
@@ -60,6 +65,14 @@ def _read_source(data_dir: Path, name: str) -> list[dict]:
             ) from exc
         return pd.read_parquet(parquet_path).to_dict(orient="records")
     raise FileNotFoundError(f"소스 파일 없음: {csv_path} / {parquet_path}")
+
+
+def _read_source_optional(data_dir: Path, name: str) -> list[dict]:
+    """선택적 소스(없으면 빈 리스트) — WP-KR 브로커/설계사 등 신규 소스 graceful."""
+    try:
+        return _read_source(data_dir, name)
+    except FileNotFoundError:
+        return []
 
 
 def _parse_bool(value: Any) -> bool:
@@ -177,6 +190,7 @@ def _load_claims(sess: Any, rows: list[dict], batch_size: int) -> int:
             "fraud_label": _parse_bool(r.get("fraud_label")),
             "is_fraud_ring": _parse_bool(r.get("is_fraud_ring")),
             "ring_id": r.get("ring_id") or "",
+            "ring_pattern": r.get("ring_pattern") or "",
             "created_at": _nz(r.get("created_at")),
         })
     cypher = """
@@ -193,6 +207,7 @@ def _load_claims(sess: Any, rows: list[dict], batch_size: int) -> int:
         c.fraud_label = row.fraud_label,
         c.is_fraud_ring = row.is_fraud_ring,
         c.ring_id = row.ring_id,
+        c.ring_pattern = row.ring_pattern,
         c.created_at = row.created_at
     """
     return _run_batched(sess, cypher, payload, batch_size=batch_size)
@@ -345,6 +360,54 @@ def _load_repair_shops(sess: Any, rows: list[dict], batch_size: int) -> int:
         s.license_no = row.license_no,
         s.rating = row.rating,
         s.created_at = row.created_at
+    """
+    return _run_batched(sess, cypher, payload, batch_size=batch_size)
+
+
+def _load_brokers(sess: Any, rows: list[dict], batch_size: int) -> int:
+    """브로커/알선자 적재(WP-KR) — 병합키 broker_id."""
+    payload = []
+    for r in rows:
+        payload.append({
+            "broker_id": r["broker_id"],
+            "name": _nz(r.get("name")),
+            "business_reg_no": _nz(r.get("business_reg_no")),
+            "phone": _nz(r.get("phone")),
+            "region": _nz(r.get("region")),
+            "created_at": _nz(r.get("created_at")),
+        })
+    cypher = """
+    UNWIND $rows AS row
+    MERGE (b:Broker {broker_id: row.broker_id})
+    SET b.name = row.name,
+        b.business_reg_no = row.business_reg_no,
+        b.phone = row.phone,
+        b.region = row.region,
+        b.created_at = row.created_at
+    """
+    return _run_batched(sess, cypher, payload, batch_size=batch_size)
+
+
+def _load_agents(sess: Any, rows: list[dict], batch_size: int) -> int:
+    """보험설계사 적재(WP-KR) — 병합키 agent_id."""
+    payload = []
+    for r in rows:
+        payload.append({
+            "agent_id": r["agent_id"],
+            "name": _nz(r.get("name")),
+            "license_no": _nz(r.get("license_no")),
+            "agency": _nz(r.get("agency")),
+            "phone": _nz(r.get("phone")),
+            "created_at": _nz(r.get("created_at")),
+        })
+    cypher = """
+    UNWIND $rows AS row
+    MERGE (a:Agent {agent_id: row.agent_id})
+    SET a.name = row.name,
+        a.license_no = row.license_no,
+        a.agency = row.agency,
+        a.phone = row.phone,
+        a.created_at = row.created_at
     """
     return _run_batched(sess, cypher, payload, batch_size=batch_size)
 
@@ -622,6 +685,32 @@ def _load_edges_witnessed_by(sess: Any, claims: list[dict], batch_size: int) -> 
     return _run_batched(sess, cypher, rows, batch_size=batch_size)
 
 
+def _load_edges_brokered(sess: Any, brokered: list[dict], batch_size: int) -> int:
+    """BROKERED (Broker)->(Customer) — 브로커가 고객을 알선(허위입원 조직형 허브)."""
+    rows = [{"broker_id": _nz(r.get("broker_id")), "customer_id": _nz(r.get("customer_id"))}
+            for r in brokered if _nz(r.get("broker_id")) and _nz(r.get("customer_id"))]
+    cypher = """
+    UNWIND $rows AS row
+    MATCH (b:Broker {broker_id: row.broker_id})
+    MATCH (c:Customer {customer_id: row.customer_id})
+    MERGE (b)-[r:BROKERED]->(c)
+    """
+    return _run_batched(sess, cypher, rows, batch_size=batch_size)
+
+
+def _load_edges_sold_policy(sess: Any, sold: list[dict], batch_size: int) -> int:
+    """SOLD_POLICY (Agent)->(Policy) — 설계사가 계약을 모집(설계사 개입 허브)."""
+    rows = [{"agent_id": _nz(r.get("agent_id")), "policy_id": _nz(r.get("policy_id"))}
+            for r in sold if _nz(r.get("agent_id")) and _nz(r.get("policy_id"))]
+    cypher = """
+    UNWIND $rows AS row
+    MATCH (a:Agent {agent_id: row.agent_id})
+    MATCH (p:Policy {policy_id: row.policy_id})
+    MERGE (a)-[r:SOLD_POLICY]->(p)
+    """
+    return _run_batched(sess, cypher, rows, batch_size=batch_size)
+
+
 # ==================================================================
 # 오케스트레이션
 # ==================================================================
@@ -643,6 +732,11 @@ def load(data_dir: str | Path, *, batch_size: int = BATCH_SIZE) -> dict[str, int
     hospitals = _read_source(data_path, "hospitals")
     repair_shops = _read_source(data_path, "repair_shops")
     claims = _read_source(data_path, "claims")
+    # WP-KR 선택적 소스(없으면 빈 리스트 — 구버전 데이터 호환)
+    brokers = _read_source_optional(data_path, "brokers")
+    agents = _read_source_optional(data_path, "agents")
+    brokered = _read_source_optional(data_path, "brokered")
+    sold_policy = _read_source_optional(data_path, "sold_policy")
 
     # FK → 병합키 매핑 (vehicle_id→vin, account_id→정규화 account_no)
     vin_by_vehicle = {
@@ -677,6 +771,12 @@ def load(data_dir: str | Path, *, batch_size: int = BATCH_SIZE) -> dict[str, int
         print(f"  Hospital    : {counts['node:Hospital']:,}")
         counts["node:RepairShop"] = _load_repair_shops(sess, repair_shops, batch_size)
         print(f"  RepairShop  : {counts['node:RepairShop']:,}")
+        if brokers:
+            counts["node:Broker"] = _load_brokers(sess, brokers, batch_size)
+            print(f"  Broker      : {counts['node:Broker']:,} (WP-KR)")
+        if agents:
+            counts["node:Agent"] = _load_agents(sess, agents, batch_size)
+            print(f"  Agent       : {counts['node:Agent']:,} (WP-KR)")
         n_addr, n_phone = _load_addresses_and_phones(sess, customers, salt, batch_size)
         counts["node:Address"] = n_addr
         counts["node:Phone"] = n_phone
@@ -707,6 +807,12 @@ def load(data_dir: str | Path, *, batch_size: int = BATCH_SIZE) -> dict[str, int
         print(f"  HAS_PHONE    : {counts['edge:HAS_PHONE']:,}")
         counts["edge:WITNESSED_BY"] = _load_edges_witnessed_by(sess, claims, batch_size)
         print(f"  WITNESSED_BY : {counts['edge:WITNESSED_BY']:,}")
+        if brokered:
+            counts["edge:BROKERED"] = _load_edges_brokered(sess, brokered, batch_size)
+            print(f"  BROKERED     : {counts['edge:BROKERED']:,} (WP-KR)")
+        if sold_policy:
+            counts["edge:SOLD_POLICY"] = _load_edges_sold_policy(sess, sold_policy, batch_size)
+            print(f"  SOLD_POLICY  : {counts['edge:SOLD_POLICY']:,} (WP-KR)")
 
     print("-" * 60)
     print(" 적재 완료.")

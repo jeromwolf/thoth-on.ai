@@ -109,6 +109,38 @@ MERGE (c1)-[:SIMILAR_TO]->(c2)
 MERGE (c2)-[:SIMILAR_TO]->(c1)
 """
 
+# WP-KR 한국 수법 동행 엣지 — 순수 구조, 라벨 미사용.
+#   E5 같은 설계사 모집 + 청구금 공통 계좌(설계사 가로채기) 동행.
+#   E7 같은 차량(vin) 동승/운전자 교체 동행(driver_swap).
+#   ※ 브로커 단독 동행/병원 단독 co-attendance 는 정상 다수가 무관하게 연결되어
+#      거대 정상 클리크를 만들므로(정밀도 파괴) 유사 엣지로 쓰지 않는다. 허위입원
+#      조직형은 룰(브로커→한 병원 집중 허브, 정밀 ~1.0)이 확실히 포착한다.
+_E5_AGENT_PAIR = """
+MATCH (a:Agent)-[:SOLD_POLICY]->(:Policy)<-[:HOLDS]-(c1:Customer)
+MATCH (a)-[:SOLD_POLICY]->(:Policy)<-[:HOLDS]-(c2:Customer)
+WHERE c1.customer_id < c2.customer_id
+WITH a, c1, c2
+MATCH (c1)-[:FILED]->(:Claim)-[:PAID_TO]->(acc:Account)<-[:PAID_TO]-(:Claim)<-[:FILED]-(c2)
+WITH DISTINCT c1, c2
+MERGE (c1)-[:SIMILAR_TO]->(c2)
+MERGE (c2)-[:SIMILAR_TO]->(c1)
+"""
+
+# E7 driver_swap 동행: 같은 차량(vin)으로 청구한 서로 다른 고객. 단, 정상 가족이
+#   공동명의 차량을 공유(같은 주소)하는 경우를 배제하기 위해 **서로 다른 주소**
+#   조건을 둔다(운전자 교체/동승자 공모는 무관한 다수가 한 차량으로 청구).
+_E7_VEHICLE_PAIR = """
+MATCH (c1:Customer)-[:FILED]->(:Claim)-[:INVOLVES]->(v:Vehicle)<-[:INVOLVES]-(:Claim)<-[:FILED]-(c2:Customer)
+WHERE c1.customer_id < c2.customer_id
+OPTIONAL MATCH (c1)-[:LIVES_AT]->(ad1:Address)
+OPTIONAL MATCH (c2)-[:LIVES_AT]->(ad2:Address)
+WITH c1, c2, ad1, ad2
+WHERE ad1.address_id <> ad2.address_id
+WITH DISTINCT c1, c2
+MERGE (c1)-[:SIMILAR_TO]->(c2)
+MERGE (c2)-[:SIMILAR_TO]->(c1)
+"""
+
 
 def build_similarity_edges() -> int:
     """고객-고객 유사(``SIMILAR_TO``) 엣지를 (재)적재한다(멱등).
@@ -125,6 +157,12 @@ def build_similarity_edges() -> int:
     db.run(_E1_HOTSPOT_PAIR, pop_h=pop_h, pop_s=pop_s, days=SIM_TIME_DAYS)
     db.run(_E2_WITNESS_PAIR)
     db.run(_E3_ACCOUNT_PAIR, days=SIM_TIME_DAYS)
+    # WP-KR 한국 수법 동행 엣지(신규 노드 없으면 빈 결과 — graceful).
+    #   허위입원 star 는 룰(브로커 허브, 정밀 ~1.0)이 확실히 잡으므로 임베딩 동행
+    #   엣지로는 넣지 않는다 — 병원 단독 co-attendance 는 정상 트래픽 균등으로 거대
+    #   정상 클리크를 만들어 정밀도를 해친다(실측). agent/driver_swap 만 동행으로 둔다.
+    db.run(_E5_AGENT_PAIR)
+    db.run(_E7_VEHICLE_PAIR)
     n = db.run("MATCH ()-[r:SIMILAR_TO]->() RETURN count(r) AS n")[0]["n"]
     return int(n)
 
@@ -322,7 +360,8 @@ def _print_anomaly_report(signals: dict[str, AnomalySignal]) -> None:
             clique_by_pat[s.ring_pattern] = clique_by_pat.get(s.ring_pattern, 0) + 1
     print(f"  CLIQUE 신호의 수법별 회수 (사기 멤버)")
     print(f"  {'수법':<14}{'멤버':>6}{'CLIQUE회수':>12}{'회수율':>10}")
-    order = ["perfect", "account_only", "witness_only", "hotspot_only", "weak"]
+    order = ["fake_admission_star", "collision_ring", "repair_overbill",
+             "agent_fraud", "driver_swap"]
     for pat in order:
         tot = pat_totals.get(pat, 0)
         rec = clique_by_pat.get(pat, 0)

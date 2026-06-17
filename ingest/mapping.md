@@ -41,8 +41,13 @@
 | 5 | `accounts` | CSV / Parquet | Account | PAID_TO | 지급 계좌 |
 | 6 | `hospitals` | CSV / Parquet | Hospital | TREATED_AT | 병원·의원·한의원 등 의료기관 |
 | 7 | `repair_shops` | CSV / Parquet | RepairShop | REPAIRED_AT | 자동차 정비소 |
+| 8 | `brokers` ⭐WP-KR | CSV / Parquet | Broker | (BROKERED) | 사기 알선자/브로커 (허위입원 조직형 허브) |
+| 9 | `agents` ⭐WP-KR | CSV / Parquet | Agent | (SOLD_POLICY) | 보험설계사 (설계사 개입 사기 허브) |
+| 10 | `brokered` ⭐WP-KR | CSV / Parquet | — | BROKERED | 브로커→고객 알선 관계 소스 |
+| 11 | `sold_policy` ⭐WP-KR | CSV / Parquet | — | SOLD_POLICY | 설계사→계약 모집 관계 소스 |
 
 > **참고:** `WITNESSED_BY` 엣지는 `claims` 소스의 목격자 관계 컬럼에서 생성된다(→ §4 참조).
+> **WP-KR:** `brokers`/`agents`/`brokered`/`sold_policy` 는 한국 조직형 사기(허위입원·설계사 개입) 표현을 위한 신규 소스다. 없으면 적재가 graceful skip 한다(구버전 데이터 호환).
 
 ---
 
@@ -69,6 +74,9 @@
 | `paid_amount` | FLOAT | 실제 지급 금액 (원), nullable | `2100000.00` | N | Claim 속성 |
 | `claim_status` | STRING | 처리 상태 | `approved`, `pending`, `denied`, `under_review` | N | Claim 속성 |
 | `fraud_label` | BOOLEAN | 사기 확정 라벨 (합성데이터 시 주입) | `true` / `false` | N | 탐지 평가용. 실운영 시 NULL 가능 |
+| `is_fraud_ring` | BOOLEAN | 사기 링 멤버 청구 ground truth | `true` / `false` | N | 평가 전용 라벨 |
+| `ring_id` | STRING | 소속 사기 링 ID (ground truth) | `RING-001` | N | 평가 전용 라벨 |
+| `ring_pattern` ⭐WP-KR | STRING | 한국 수법 라벨 | `fake_admission_star`, `collision_ring`, `repair_overbill`, `agent_fraud`, `driver_swap` | N | **수법별 탐지율 평가용** ground truth |
 | `witness_claim_ids` | STRING[] | 이 사고를 목격 관계로 연결할 다른 청구 ID 목록 | `["CLM-2024-000002","CLM-2024-000003"]` | N | **WITNESSED_BY 엣지 소스** — crash-for-cash 핵심 |
 | `created_at` | TIMESTAMP | 레코드 생성 시각 | `2024-03-16T09:12:00Z` | N | 적재 메타 |
 
@@ -159,6 +167,35 @@
 | `rating` | FLOAT | 보험사 평가 등급 (0–5) | `3.8` | N | RepairShop 속성 (핫스팟 탐지 보조) |
 | `created_at` | TIMESTAMP | 등록일 | `2019-07-01T00:00:00Z` | N | RepairShop 속성 |
 
+### 2.8 brokers (브로커/알선자) ⭐WP-KR
+
+| 컬럼명 | 타입 | 설명 | 예시 | PII | 비고 |
+|---|---|---|---|---|---|
+| `broker_id` | STRING | 브로커 고유 ID (멱등키) | `BRK-0001` / `BRK-K0001`(사기 전용) | N | Broker 노드 PRIMARY KEY |
+| `name` | STRING | 상호/이름 | `한길알선1` | 준PII | Broker 속성 |
+| `business_reg_no` | STRING | 사업자등록번호 | `123-45-67890` | N | Broker 속성 |
+| `phone` | STRING | 연락처 | `010-1234-5678` | 준PII | Broker 속성 |
+| `region` | STRING | 활동 지역 | `서울시` | N | Broker 속성 |
+| `created_at` | TIMESTAMP | 등록일 | `2020-01-15T00:00:00Z` | N | Broker 속성 |
+
+### 2.9 agents (보험설계사) ⭐WP-KR
+
+| 컬럼명 | 타입 | 설명 | 예시 | PII | 비고 |
+|---|---|---|---|---|---|
+| `agent_id` | STRING | 설계사 고유 ID (멱등키) | `AGT-00001` / `AGT-K00001`(사기 전용) | N | Agent 노드 PRIMARY KEY |
+| `name` | STRING | 설계사명 | `홍길동` | 준PII | Agent 속성 |
+| `license_no` | STRING | 설계사 등록번호 | `설계-2020-00123` | N | Agent 속성 |
+| `agency` | STRING | 소속 보험사 | `삼성화재` | N | Agent 속성 |
+| `phone` | STRING | 연락처 | `010-1234-5678` | 준PII | Agent 속성 |
+| `created_at` | TIMESTAMP | 등록일 | `2019-03-10T00:00:00Z` | N | Agent 속성 |
+
+### 2.10 brokered / sold_policy (관계 소스) ⭐WP-KR
+
+| 소스 | 컬럼 | 설명 | 생성 엣지 |
+|---|---|---|---|
+| `brokered` | `broker_id`, `customer_id` | 브로커가 알선한 고객 | `(Broker)-[:BROKERED]->(Customer)` |
+| `sold_policy` | `agent_id`, `policy_id` | 설계사가 모집한 계약 | `(Agent)-[:SOLD_POLICY]->(Policy)` |
+
 ---
 
 ## 3. 소스 → 노드 매핑
@@ -174,12 +211,14 @@
 | `RepairShop` | repair_shops | `repair_shop_id` | `repair_shop_id` | `business_reg_no`, `name`, `type`, `address`, `phone`, `license_no`, `rating` |
 | `Address` | customers (ETL 파생) | `address_id` = hash(address_normalized) | `address_normalized` | `raw_address`, `address_normalized` |
 | `Phone` | customers (ETL 파생) | `phone_id` = hash(phone_normalized) | `phone_normalized` | `phone_normalized` / `phone_number` → 해시 저장 |
+| `Broker` ⭐WP-KR | brokers | `broker_id` | `broker_id` | `name`, `business_reg_no`, `phone`, `region` |
+| `Agent` ⭐WP-KR | agents | `agent_id` | `agent_id` | `name`, `license_no`, `agency`, `phone` |
 
 > **Address·Phone 노드**는 `customers` 소스에서 ETL이 파생 생성한다. 동일 정규화 값이면 단일 노드로 병합되어 복수 고객이 주소/전화를 공유하는 관계가 그래프에 드러난다.
 
 ---
 
-## 4. 소스 → 엣지 매핑 (11종)
+## 4. 소스 → 엣지 매핑 (13종)
 
 | # | 엣지 타입 | 방향 | 소스 테이블 | 소스 컬럼 (FROM → TO) | 엣지 속성 | 탐지 활용 |
 |---|---|---|---|---|---|---|
@@ -194,6 +233,8 @@
 | 9 | `OWNS` | `(Customer)-[:OWNS]->(Vehicle)` | vehicles | `customer_id` → `vehicle_id` | `registered_at` | 차량 소유 관계, 공유 차량 탐지 |
 | 10 | `HAS_PHONE` | `(Customer)-[:HAS_PHONE]->(Phone)` | customers (ETL) | `customer_id` → hash(`phone_normalized`) | `since` = `customers.created_at` | 전화 공유 고객 탐지 (FR-3.1) |
 | 11 | `WITNESSED_BY` | `(Claim)-[:WITNESSED_BY]->(Claim)` | claims | `claim_id` → `witness_claim_ids[]` (각 원소 1엣지) | `witness_type` = `"cross_witness"` | **crash-for-cash 교차 목격 탐지 핵심** (FR-3.3) |
+| 12 | `BROKERED` ⭐WP-KR | `(Broker)-[:BROKERED]->(Customer)` | brokered | `broker_id` → `customer_id` | — | **허위입원 조직형** — 브로커 허브(한 병원 집중 알선) 탐지 |
+| 13 | `SOLD_POLICY` ⭐WP-KR | `(Agent)-[:SOLD_POLICY]->(Policy)` | sold_policy | `agent_id` → `policy_id` | — | **설계사 개입** — 설계사 허브(공통 수취계좌 집중) 탐지 |
 
 ### 4.1 WITNESSED_BY 상세 — crash-for-cash 핵심 엣지
 
