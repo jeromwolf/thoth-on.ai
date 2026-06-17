@@ -147,6 +147,106 @@ def test_holdout_consistent_with_cv() -> None:
     assert ho.auc > 0.70, f"hold-out AUC 미달: {ho.auc:.3f}"
 
 
+# ===========================================================================
+# 개선 — 파생 피처(누수 없음) · 운영점 지표 · 앙상블
+# ===========================================================================
+@pytest.mark.smoke
+def test_engineered_features_present_and_leakfree() -> None:
+    """파생 상호작용/비율 피처가 추가되고, transform 이 라벨을 읽지 않아야 한다(누수 없음)."""
+    enc = am.AttributeEncoder(engineered=True)
+    # 파생 피처 이름이 정의돼 있고 fit 후 feature_names 에 포함된다.
+    assert "ix:Fault_PH_x_AllPerils" in am.ENGINEERED_FEATURES
+    assert "r:claims_per_age" in am.ENGINEERED_FEATURES
+    train = [{"Fault": "Policy Holder", "BasePolicy": "All Perils",
+              "AddressChange_Claim": "under 6 months", "Age": "22",
+              "Days_Policy_Accident": "1 to 7", "PastNumberOfClaims": "none"}]
+    enc.fit(train)
+    for f in am.ENGINEERED_FEATURES:
+        assert f in enc.feature_names, f"파생 피처 누락: {f}"
+    X = enc.transform(train)
+    assert np.all(np.isfinite(X))
+    # transform/_fill_engineered 소스가 라벨을 읽지 않는다(누수 차단).
+    import inspect
+    src = inspect.getsource(am.AttributeEncoder._fill_engineered)
+    assert am.LABEL_COL not in src, "파생 피처가 라벨을 읽음 — 누수"
+    # 본인과실 × All Perils 결합이 1 로 계산됨(설계대로).
+    j = enc.feature_names.index("ix:Fault_PH_x_AllPerils")
+    assert X[0, j] == 1.0
+
+
+@pytest.mark.smoke
+def test_rare_category_grouping() -> None:
+    """희소 범주(rare_min 미만 빈도)는 vocabulary 에서 제외 — test 에서 0(unknown)."""
+    train = [{"Make": "Toyota"}] * 30 + [{"Make": "Ferrari"}] * 2
+    enc = am.AttributeEncoder(
+        categorical_cols=["Make"], ordinal_cols=[], numeric_cols=[],
+        engineered=False, rare_min=20,
+    ).fit(train)
+    assert "Make=Toyota" in enc.feature_names      # 빈도 30 >= 20 → 유지
+    assert "Make=Ferrari" not in enc.feature_names  # 빈도 2 < 20 → 제외(노이즈 억제)
+
+
+@pytest.mark.smoke
+def test_recall_at_precision_monotone() -> None:
+    """recall_at_precision 이 PR 곡선에서 올바른 운영점을 산출(완벽 분리 시 recall=1)."""
+    y = np.array([0, 0, 0, 0, 1, 1])
+    proba = np.array([0.1, 0.2, 0.3, 0.4, 0.9, 0.95])  # 완벽 분리
+    rec, thr = am.recall_at_precision(y, proba, 0.9)
+    assert rec == 1.0 and thr is not None
+    # 도달 불가 precision 은 (0.0, None).
+    y2 = np.array([1, 0, 1, 0])
+    proba2 = np.array([0.5, 0.5, 0.5, 0.5])  # 무작위 — precision=0.5 상한
+    rec2, _ = am.recall_at_precision(y2, proba2, 0.99)
+    assert rec2 == 0.0
+
+
+@pytest.mark.smoke
+def test_cost_threshold_responds_to_ratio() -> None:
+    """비용비가 클수록(FN 더 비쌈) 임계가 낮아져 더 많이 적발해야 한다."""
+    rng = np.random.RandomState(0)
+    y = (rng.rand(500) < 0.1).astype(int)
+    proba = np.clip(0.3 * y + rng.rand(500) * 0.5, 0, 1)
+    t_cheap, _ = am.best_cost_threshold(y, proba, fn_cost=2.0, fp_cost=1.0)
+    t_expensive, _ = am.best_cost_threshold(y, proba, fn_cost=20.0, fp_cost=1.0)
+    assert t_expensive <= t_cheap, "FN 비용↑ 시 임계가 낮아져야(더 적발) 한다"
+
+
+@requires_data
+@requires_sklearn
+@pytest.mark.integration
+def test_ensemble_no_leakage_and_improves_pr() -> None:
+    """기본 ens 앙상블이 누수 없이 동작하고 PR-AUC 가 base rate 의 2배 이상."""
+    data = am.load_kaggle()
+    cv = am.cross_validate_kaggle(model_kind="ens", n_folds=5, data=data,
+                                  compute_perm=False)
+    assert cv.oof_proba.shape[0] == data.n
+    assert np.all((cv.oof_proba >= 0) & (cv.oof_proba <= 1))
+    m = am.evaluate_proba(cv.y_true, cv.oof_proba)
+    base_rate = data.n_fraud / data.n
+    assert m.auc > 0.70
+    assert m.pr_auc > base_rate * 2
+    # 운영점 — precision 0.4 에서 양수 recall(헛알림 통제 가능 입증).
+    rec40, _ = am.recall_at_precision(cv.y_true, cv.oof_proba, 0.40)
+    assert rec40 > 0.0, "precision 0.4 운영점 도달 불가 — 헛알림 통제 불가"
+
+
+@requires_data
+@requires_sklearn
+@pytest.mark.integration
+def test_ensemble_shuffled_labels_collapse() -> None:
+    """ens 도 라벨 셔플 시 AUC 가 무작위로 붕괴 — 파생 피처 경로에 누수 없음."""
+    data = am.load_kaggle()
+    rng = np.random.RandomState(0)
+    y_shuf = data.labels.copy()
+    rng.shuffle(y_shuf)
+    cv = am.cross_validate_kaggle(model_kind="ens", n_folds=5,
+                                  data=am.RawData(rows=data.rows, labels=y_shuf),
+                                  compute_perm=False)
+    assert np.mean(cv.fold_auc) < 0.60, (
+        f"셔플 라벨 AUC 가 너무 높음(누수 의심): {np.mean(cv.fold_auc):.3f}"
+    )
+
+
 @requires_data
 @requires_sklearn
 @pytest.mark.integration

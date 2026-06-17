@@ -177,7 +177,7 @@ class DualLayerResult:
 
 def score_dual_layer(
     *,
-    model_kind: str = "gb",
+    model_kind: str = "ens",
     combine: str = "max",
 ) -> DualLayerResult:
     """전 청구에 그래프(조직형)+속성(개인형) 점수를 산출·결합한다.
@@ -380,8 +380,8 @@ def _print_report(res: DualLayerResult, rb: RecallBreakdown) -> None:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         description="THOTH-ON 듀얼 레이어 (조직형 그래프 + 개인형 속성)")
-    p.add_argument("--model", default="gb", choices=["lr", "rf", "gb"],
-                   help="속성 ML 모델(lr/rf/gb)")
+    p.add_argument("--model", default="ens", choices=["lr", "rf", "gb", "hgb", "ens"],
+                   help="속성 ML 모델(lr/rf/gb/hgb/ens) — 기본 ens(GB+HGB+RF 앙상블)")
     p.add_argument("--combine", default="max", choices=["max", "weighted"],
                    help="그래프+속성 결합 방식")
     p.add_argument("--threshold", type=float, default=0.5,
