@@ -1368,6 +1368,7 @@
     <div class="nav-group">
       <div class="nav-label">아키텍처</div>
       <a class="nav-item" href="#architecture"><span class="nav-n">03A</span>시스템 아키텍처</a>
+      <a class="nav-item" href="#feedback"><span class="nav-n">03B</span>쓸수록 똑똑해집니다</a>
     </div>
     <div class="nav-divider"></div>
     <div class="nav-group">
@@ -2065,6 +2066,83 @@
 
     </section><!-- /architecture -->
 
+    <!-- 03B 피드백 루프 — 쓸수록 똑똑해집니다 -->
+    <section class="section" id="feedback">
+      <div class="section-hd">
+        <span class="section-n">03B</span>
+        <h2 class="section-title">쓸수록 똑똑해집니다 — 피드백 루프</h2>
+      </div>
+
+      <p>
+        보통의 탐지 시스템은 한 번 만들어 두면 그대로 멈춰 있습니다. THOTH-ON은 다릅니다.
+        <strong>조사관이 내린 '사기 확정 / 정상' 판정이 곧 시스템의 새로운 학습 교재</strong>가 됩니다.
+        조사관이 사건을 처리할수록 시스템은 자기 회사의 사기 패턴을 더 잘 알아보게 됩니다.
+      </p>
+
+      <div class="analogy">
+        <div class="analogy-icon">🎓</div>
+        <div class="analogy-body">
+          신입 조사관이 선배의 판정을 보며 감을 익히는 것과 같습니다. THOTH-ON은
+          <strong>여러분 회사 조사관들의 판정을 모아 학습</strong>하기 때문에, 외부에서 만든
+          일반 모델보다 <strong>우리 회사의 실제 사기 유형</strong>에 점점 더 맞춰집니다.
+        </div>
+      </div>
+
+      <h3>한 바퀴 도는 학습 고리</h3>
+      <ol class="steps">
+        <li>
+          <span class="step-n">1</span>
+          <div class="step-body">
+            <strong>조사관이 판정합니다</strong>
+            <span>사건 상세 화면에서 '사기 확정 · 정상 · 보류' 버튼을 누릅니다. 이 판정이 시스템에 정답 라벨로 기록됩니다.</span>
+          </div>
+        </li>
+        <li>
+          <span class="step-n">2</span>
+          <div class="step-body">
+            <strong>판정이 운영 라벨로 쌓입니다</strong>
+            <span>처음에 들어온 합성·시범 라벨이 아니라, <strong>실제 조사관이 검증한 결과</strong>가 별도로 누적됩니다. 우리 회사만의 진짜 정답지가 만들어집니다.</span>
+          </div>
+        </li>
+        <li>
+          <span class="step-n">3</span>
+          <div class="step-body">
+            <strong>모델이 다시 학습합니다</strong>
+            <span>버튼 한 번(또는 정기 일괄 실행)으로 그동안 쌓인 판정을 반영해 탐지 모델을 재학습합니다. 새로 배운 모델은 안전하게 보관(영속화)됩니다.</span>
+          </div>
+        </li>
+        <li>
+          <span class="step-n">4</span>
+          <div class="step-body">
+            <strong>새 모델이 곧바로 점수 매기기에 투입됩니다</strong>
+            <span>재학습된 모델은 다음 사건들의 위험 점수를 매기는 데 실제로 사용됩니다. '학습만 하고 안 쓰는' 모델이 아니라 현장에 바로 반영됩니다.</span>
+          </div>
+        </li>
+        <li>
+          <span class="step-n">5</span>
+          <div class="step-body">
+            <strong>의심 사건 목록이 자동으로 재정렬됩니다</strong>
+            <span>큐의 점수가 새 모델 기준으로 다시 계산되어, 조사관은 다음 출근 때 <strong>한층 정교해진 우선순위</strong>로 사건을 받습니다. 그리고 다시 1번으로 — 고리가 한 바퀴 돕니다.</span>
+          </div>
+        </li>
+      </ol>
+
+      <div class="callout info">
+        <strong>정직한 성능 표기 원칙.</strong> 처음의 '시범 라벨 기준 성능'과 '조사관 판정 반영 후 성능'은
+        <strong>서로 다른 정답지로 측정</strong>되므로 두 수치를 단순 비교하지 않습니다. 시스템은 두 기준을
+        나란히 보여 주고, 변화량(delta)은 어디까지나 참고치임을 항상 함께 표기합니다 — 좋아 보이게
+        부풀리지 않습니다.
+      </div>
+
+      <div class="callout warn">
+        <strong>기술 담당자 참고.</strong> 이 고리는 REST API로 노출됩니다 —
+        <code>POST /cases/{id}/verdict</code>(판정 기록) ·
+        <code>POST /detection/retrain</code>(판정 반영 재학습) ·
+        <code>POST /detection/rescore</code>(큐 재스코어링) ·
+        <code>GET /detection/model</code>(활성 모델 메타 조회). 모든 접근은 RBAC·감사 기록 대상입니다.
+      </div>
+    </section>
+
     <!-- 04 화면 1 — 의심 사건 목록 -->
     <section class="section" id="screen1">
       <div class="section-hd">
@@ -2398,6 +2476,16 @@
           <div class="diff-head">AI가 지어낸 말을 걸러 냅니다</div>
           <div class="diff-text">환각가드(HallucinGuard)가 AI 설명문을 검증합니다. 실제 데이터에 없는 내용을 AI가 꾸며냈다면 그 설명은 화면에 표시되지 않습니다.</div>
         </div>
+        <div class="diff-card">
+          <span class="diff-icon">🟢</span>
+          <div class="diff-head">지금 어떤 AI가 돌고 있는지 한눈에 보입니다</div>
+          <div class="diff-text">콘솔 상단의 상태 배지로 현재 활성화된 AI 엔진(예: 내부망 Ollama)을 표시합니다. 외부 클라우드 AI를 쓰지 않고 사내 모델로만 돌고 있음을 운영자가 즉시 확인할 수 있습니다(<code>GET /llm/status</code>).</div>
+        </div>
+        <div class="diff-card">
+          <span class="diff-icon">♻️</span>
+          <div class="diff-head">조사관 판정으로 스스로 학습합니다</div>
+          <div class="diff-text">조사관이 내린 '사기 확정 / 정상' 판정을 모아 탐지 모델을 재학습하고, 새 모델을 곧바로 점수 매기기에 반영합니다. 쓸수록 우리 회사 사기 패턴에 맞춰집니다(<a href="#feedback">피드백 루프</a> 참고).</div>
+        </div>
       </div>
 
       <div class="callout info">
@@ -2597,7 +2685,7 @@
           <tr>
             <td><code>GET /cases</code></td>
             <td>의심 사건 목록 (min_score, status 필터 지원)</td>
-            <td rowspan="4" style="vertical-align:middle;font-size:13px;color:var(--ink-3);">
+            <td rowspan="8" style="vertical-align:middle;font-size:13px;color:var(--ink-3);">
               <code>X-Role:</code><br/>
               FRAUD_ANALYST<br/>
               SIU_MANAGER<br/>
@@ -2608,6 +2696,22 @@
           <tr>
             <td><code>GET /cases/{id}</code></td>
             <td>사건 상세: 점수 + 신호 + 설명문 + 환각가드 결과</td>
+          </tr>
+          <tr>
+            <td><code>POST /cases/{id}/verdict</code></td>
+            <td>조사관 판정(사기/정상/보류) 기록 — 피드백 루프 시작점</td>
+          </tr>
+          <tr>
+            <td><code>POST /detection/retrain</code></td>
+            <td>판정 반영 재학습 + 모델 영속화</td>
+          </tr>
+          <tr>
+            <td><code>POST /detection/rescore</code></td>
+            <td>새 모델 기준으로 케이스 큐 재스코어링</td>
+          </tr>
+          <tr>
+            <td><code>GET /detection/model</code></td>
+            <td>활성 재학습 모델 메타 조회</td>
           </tr>
           <tr>
             <td><code>GET /graph/customer/{id}</code></td>
