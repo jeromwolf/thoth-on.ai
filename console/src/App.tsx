@@ -4,6 +4,7 @@ import { CaseDetail } from './components/CaseDetail'
 import { GraphView } from './components/GraphView'
 import { KpiDashboard } from './components/KpiDashboard'
 import { RetrainPanel } from './components/RetrainPanel'
+import { LlmStatusBadge } from './components/LlmStatusBadge'
 import type { CaseListItem, View } from './types'
 
 const X_ROLE = (import.meta.env.VITE_X_ROLE as string | undefined) ?? 'FRAUD_ANALYST'
@@ -187,6 +188,7 @@ export default function App() {
             <span className="status-dot" />
             연결됨
           </span>
+          <LlmStatusBadge />
           <div className="role-chip" title={`역할: ${X_ROLE}`}>
             <span className="role-avatar">{roleInitial}</span>
             {roleLabel}

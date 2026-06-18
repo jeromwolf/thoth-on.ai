@@ -7,6 +7,7 @@ import type {
   RetrainResponse,
   ActiveModel,
   RescoreSummary,
+  LlmStatus,
 } from '../types'
 
 export interface AssignRequest {
@@ -81,4 +82,8 @@ export function getActiveModel(): Promise<ActiveModel> {
 
 export function rescore(): Promise<RescoreSummary> {
   return post<RescoreSummary>('/detection/rescore', {})
+}
+
+export function getLlmStatus(): Promise<LlmStatus> {
+  return get<LlmStatus>('/llm/status')
 }

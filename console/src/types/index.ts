@@ -191,6 +191,17 @@ export interface RescoreSummary {
   used_ml: boolean
 }
 
+// LLM provider status — mirrors GET /llm/status
+export interface LlmStatus {
+  provider: string
+  fallback_to_mock: boolean
+  reachable: boolean | null
+  configured_model: string | null
+  generation_ready: boolean | null
+  models_available: string[]
+  note: string
+}
+
 // UI state types
 export type View = 'queue' | 'detail' | 'graph' | 'kpi' | 'retrain'
 
