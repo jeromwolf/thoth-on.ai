@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import re
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from thoth.config import Settings, get_settings
 
@@ -198,6 +198,12 @@ class OllamaProvider(LLMProvider):
 
     name = "ollama"
 
+    # 폐쇄망 환각 억제: 실제 경로 데이터에 존재하는 엔티티만 인용하도록 지시.
+    _GROUNDING_PREFIX = (
+        "다음 경로 데이터에 실제로 등장하는 고객·엔티티 ID만 인용해 한국어로 간결히 소명하라. "
+        "데이터에 없는 정보·추측·일반론은 절대 쓰지 마라.\n\n"
+    )
+
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self._settings = settings or get_settings()
         self._fallback = MockProvider()
@@ -206,11 +212,16 @@ class OllamaProvider(LLMProvider):
         try:  # pragma: no cover - 네트워크 의존
             import urllib.request
 
+            # 원본 prompt 는 변형하지 않고 지역 변수에만 프리픽스 부착.
+            augmented_prompt = self._GROUNDING_PREFIX + prompt
+
+            timeout = getattr(self._settings, "ollama_timeout", 30)
             payload = json.dumps(
                 {
                     "model": self._settings.ollama_model,
-                    "prompt": prompt,
+                    "prompt": augmented_prompt,
                     "stream": False,
+                    "options": {"temperature": 0.2},
                 }
             ).encode("utf-8")
             req = urllib.request.Request(
@@ -218,7 +229,7 @@ class OllamaProvider(LLMProvider):
                 data=payload,
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
             text = (body.get("response") or "").strip()
             return text or self._fallback.generate(prompt)
@@ -251,3 +262,84 @@ def get_provider(
     if cls is MockProvider:
         return MockProvider()
     return cls(settings=settings)  # type: ignore[call-arg]
+
+
+def probe_provider(settings: Optional[Settings] = None) -> dict:
+    """활성 LLM provider 의 상태를 점검해 운영 가시성 정보를 반환한다.
+
+    반환 키:
+        provider          - 활성 provider 이름(문자열)
+        fallback_to_mock  - 실 provider 불가 → Mock 으로 fallback 여부
+        reachable         - 네트워크/서버 도달 가능 여부(None=해당 없음)
+        configured_model  - 설정된 모델 이름(None=해당 없음)
+        generation_ready  - 설정 모델이 서버에 존재하는지 여부(None=해당 없음)
+        models_available  - 서버에서 확인한 모델 이름 목록
+        note              - 사람이 읽는 상태 설명(한국어)
+    """
+    import urllib.request as _urllib_req
+
+    settings = settings or get_settings()
+    active = (settings.llm_provider or "mock").lower()
+
+    result: dict = {
+        "provider": active,
+        "fallback_to_mock": False,
+        "reachable": None,
+        "configured_model": None,
+        "generation_ready": None,
+        "models_available": [],
+        "note": "",
+    }
+
+    if active == "ollama":
+        configured_model = settings.ollama_model
+        result["configured_model"] = configured_model
+
+        try:
+            tags_url = f"{settings.ollama_base_url}/api/tags"
+            req = _urllib_req.Request(tags_url, headers={"Accept": "application/json"})
+            with _urllib_req.urlopen(req, timeout=5) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            # /api/tags 응답: {"models": [{"name": "...", ...}, ...]}
+            models: List[str] = [
+                m.get("name", "") for m in body.get("models", []) if m.get("name")
+            ]
+            result["reachable"] = True
+            result["models_available"] = models
+            generation_ready = configured_model in models
+            result["generation_ready"] = generation_ready
+            result["fallback_to_mock"] = not generation_ready
+            if generation_ready:
+                result["note"] = (
+                    f"ollama 도달 가능, 생성 모델({configured_model}) 확인됨 → 실 LLM 사용."
+                )
+            else:
+                result["note"] = (
+                    f"ollama 도달 가능하나 생성 모델({configured_model}) 미설치 "
+                    f"(설치된 모델: {models or '없음'}) → mock fallback."
+                )
+        except Exception as exc:
+            result["reachable"] = False
+            result["generation_ready"] = False
+            result["fallback_to_mock"] = True
+            result["note"] = (
+                f"ollama 서버 미가용({type(exc).__name__}) → mock fallback."
+            )
+
+    elif active in {"anthropic", "openai"}:
+        key_attr = f"{active}_api_key"
+        has_key = bool(getattr(settings, key_attr, ""))
+        result["fallback_to_mock"] = not has_key
+        if has_key:
+            result["note"] = f"{active} API 키 설정됨 → 실 LLM 사용(네트워크 필요)."
+        else:
+            result["note"] = (
+                f"{active} API 키 미설정({key_attr} 환경변수 없음) → mock fallback."
+            )
+
+    else:
+        # mock 또는 알 수 없는 provider → fallback_to_mock=False(Mock 이 의도된 기본)
+        result["fallback_to_mock"] = False
+        result["note"] = "결정적 Mock provider(네트워크 불필요). 테스트·오프라인 기본."
+
+    return result

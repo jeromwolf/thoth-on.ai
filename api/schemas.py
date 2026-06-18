@@ -283,6 +283,31 @@ class KpiResponse(BaseModel):
 
 
 # ==================================================================
+# LLM provider 상태 (폐쇄망 운영 가시성)
+# ==================================================================
+class LlmStatusResponse(BaseModel):
+    """활성 LLM provider 상태 응답. 폐쇄망 운영 점검용."""
+
+    provider: str = Field(..., description="활성 provider 이름(mock/ollama/anthropic/openai)")
+    fallback_to_mock: bool = Field(
+        ..., description="실 provider 불가로 Mock fallback 여부"
+    )
+    reachable: Optional[bool] = Field(
+        None, description="서버/네트워크 도달 가능 여부(ollama 전용; 기타 None)"
+    )
+    configured_model: Optional[str] = Field(
+        None, description="설정된 생성 모델 이름(ollama 전용)"
+    )
+    generation_ready: Optional[bool] = Field(
+        None, description="설정 모델이 서버에 존재하는지 여부(ollama 전용)"
+    )
+    models_available: List[str] = Field(
+        default_factory=list, description="서버에서 확인한 모델 이름 목록(ollama 전용)"
+    )
+    note: str = Field(..., description="사람이 읽는 상태 설명(한국어)")
+
+
+# ==================================================================
 # 오류 응답
 # ==================================================================
 class ErrorResponse(BaseModel):

@@ -68,7 +68,7 @@ cd console && npm run dev
 | `ingest/` | 배치 적재·엔티티 해소·가명처리 | FR-1.x |
 | `graph/` | cypher 스키마·온톨로지·시드 | FR-2.x |
 | `detection/` | 탐지 쿼리·GDS·스코어링 | FR-3.x |
-| `explain/` | LLM 설명(provider 추상화) | FR-5.x |
+| `explain/` | LLM 설명(provider 추상화: mock/anthropic/openai/ollama, 환각 가드) | FR-5.x |
 | `api/` | FastAPI REST (RBAC 미들웨어 포함) | FR-8.x |
 | `console/` | React + vis-network 뷰어 | FR-6.x |
 | `core/security/` | RBAC·감사 | NFR |
