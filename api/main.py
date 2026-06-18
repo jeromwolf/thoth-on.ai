@@ -13,6 +13,7 @@
     · GET  /graph/customer/{customer_id} — 고객 서브네트워크(vis-network)     [FRAUD_CASE]
     · GET  /kpi                          — 경영 대시보드 KPI(FR-9.2)          [CLAIMS]
     · POST /detection/retrain  — 조사관 판정 피드백 재학습  [FRAUD_CASE]
+    · GET  /detection/model   — 활성 재학습 모델 메타      [FRAUD_CASE]
 
 실행:
     make serve                       # THOTH_API_PORT(기본 8468)

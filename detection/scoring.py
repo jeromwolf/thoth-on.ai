@@ -121,6 +121,13 @@ W_GDS_PAGERANK = 4.0             # 상대적으로 높은 PageRank corroborating
 #   PAIR(차수==1)은 정밀 ~0.06 으로 noisy → 신호로 쓰지 않는다(정밀도 보호).
 W_EMBED_CLIQUE = 48.0            # SIMILAR_TO 3+ 클리크 멤버 (강 — 약신호 링 회수)
 
+# 재학습 ML 사기확률 신호 (WP4-3 · FR-4.3) — 영속화 배포 모델(detection.model_store).
+#   조사관 판정 피드백으로 재학습한 모델의 사기확률을 corroborating 가산점으로
+#   반영한다(룰 신호 대체 아님). 확률 게이팅(>= ML_PROB_THRESHOLD)으로 저확률
+#   잡음을 차단하고, 가산 가중치는 확률에 비례(W_ML_FRAUD * p)시킨다.
+W_ML_FRAUD = 30.0               # 재학습 모델 사기확률 corroborating(확률 비례 가산)
+ML_PROB_THRESHOLD = 0.5         # 이 확률 미만이면 신호 미가산(저확률 잡음 차단)
+
 # 공유 군집/순환 규모가 클수록 가산(상한 있음).
 CLUSTER_SIZE_BONUS = 3.0
 CLUSTER_SIZE_BONUS_CAP = 12.0
@@ -140,6 +147,7 @@ _GROUP_HOTSPOT = "HOTSPOT"
 _GROUP_EMBED = "EMBED"   # 임베딩 비지도 클리크(FR-3.6) — 구조적 고신뢰 그룹
 _GROUP_HUB = "HUB"       # WP-KR 브로커/설계사 허브(조직형 사기) — 고신뢰
 _GROUP_STAR = "STAR"     # WP-KR 허위입원 star(병원 환자 집중) — 고신뢰
+_GROUP_ML = "ML"         # 재학습 배포 모델 사기확률(FR-4.3) — corroborating
 
 
 @dataclass
@@ -289,6 +297,7 @@ def score_customers(
     alert_threshold: float = DEFAULT_ALERT_THRESHOLD,
     use_gds: bool = False,
     use_embedding: bool = False,
+    use_ml: bool = False,
 ) -> dict[str, CustomerRisk]:
     """전 고객 리스크 스코어 산출 (FR-3.5).
 
@@ -305,6 +314,11 @@ def score_customers(
         use_embedding: True 면 그래프 임베딩/비지도 이상탐지(SIMILAR_TO 클리크) 신호를
             corroborating 가산점으로 반영(WP3 · FR-3.6). 라벨 미사용 비지도 신호로
             weak/hotspot_only 수법을 회수한다. SIMILAR_TO 엣지가 없으면 자동 생략.
+        use_ml: True 면 재학습 배포 모델(detection.model_store)의 사기확률을
+            corroborating 가산점으로 반영(WP4-3 · FR-4.3). 영속화 모델이 없으면 자동
+            생략. **주의 — 서빙 경로(in-sample)**: 배포 모델이 자기 학습 모집단을
+            스코어링하므로 본질상 in-sample 이다. 정직한 일반화 성능은
+            detection.ml_model 의 out-of-fold 로 별도 측정한다(혼동 금지).
 
     Returns:
         ``{customer_id: CustomerRisk}`` 매핑. 신호가 있는 고객만 포함.
@@ -424,6 +438,10 @@ def score_customers(
     # --- 임베딩/비지도 이상신호 (WP3 · FR-3.6, 선택적 corroborating) ---
     if use_embedding:
         _apply_embedding_signals(risks, _get)
+
+    # --- 재학습 배포 모델 사기확률 (WP4-3 · FR-4.3, 선택적 corroborating) ---
+    if use_ml:
+        _apply_ml_signals(risks, _get)
 
     # --- 복수 신호 보너스 (핵심) — 서로 다른 강신호 그룹 2종+ 동시 충족 시 급가점 ---
     for r in risks.values():
@@ -609,6 +627,49 @@ def _apply_embedding_signals(
                 "similar_peers": sig.similar_peers,
             },
             group=_GROUP_EMBED,
+        )
+
+
+def _apply_ml_signals(
+    risks: dict[str, CustomerRisk],
+    get_risk: Any,
+) -> None:
+    """재학습 배포 모델(detection.model_store)의 사기확률을 corroborating 가산.
+
+    조사관 판정 피드백으로 재학습한 영속화 모델의 사기확률을 확률 게이팅
+    (``>= ML_PROB_THRESHOLD``)으로 받아, 확률에 비례한 가중치(``W_ML_FRAUD * p``)로
+    가산한다. 룰 신호를 대체하지 않는 corroborating 신호다.
+
+    [정직성 — 서빙 경로는 본질상 in-sample]
+        이 신호는 학습 모델(조사관 피드백 라벨을 포함할 수 있음)의 사기확률을
+        가산한다. ``score_customers(use_ml=True)`` 는 **배포 모델이 자기 학습 모집단을
+        스코어링하는 서빙 경로**이므로 본질상 in-sample 이다(라이브 운영 점수 산출용).
+        정직한 일반화 성능은 detection.ml_model 의 out-of-fold 로 별도 측정한다.
+        둘을 같은 척도로 혼동하지 말 것.
+
+    영속화 모델이 없으면(미배포) 조용히 생략한다.
+    """
+    from detection import model_store
+
+    try:
+        probs = model_store.predict_proba()
+    except Exception:
+        return
+    if not probs:
+        return
+
+    for cid, p in probs.items():
+        if p < ML_PROB_THRESHOLD:
+            continue  # 저확률 잡음 차단(확률 게이팅)
+        r = risks.get(cid)
+        if r is None:
+            r = get_risk(cid)
+        weight = W_ML_FRAUD * p
+        r.add_signal(
+            "ML_FRAUD_PROB",
+            weight,
+            {"probability": round(p, 3)},
+            group=_GROUP_ML,
         )
 
 

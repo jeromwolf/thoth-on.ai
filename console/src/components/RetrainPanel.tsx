@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { retrain } from '../api/endpoints'
-import type { RetrainResponse, RetrainMetrics } from '../types'
+import { useState, useEffect } from 'react'
+import { retrain, getActiveModel } from '../api/endpoints'
+import type { RetrainResponse, RetrainMetrics, ActiveModel } from '../types'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -17,6 +17,98 @@ function deltaClass(n: number): string {
   if (n > 0.001) return 'retrain-delta-pos'
   if (n < -0.001) return 'retrain-delta-neg'
   return 'retrain-delta-neutral'
+}
+
+function formatTrainedAt(raw: string): string {
+  try {
+    const d = new Date(raw)
+    return d.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  } catch {
+    return raw
+  }
+}
+
+// ─── ActiveModelBadge ────────────────────────────────────────────────────────
+
+interface ActiveModelBadgeProps {
+  model: ActiveModel | null
+  loading: boolean
+}
+
+function ActiveModelBadge({ model, loading }: ActiveModelBadgeProps) {
+  if (loading) {
+    return (
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '5px 10px',
+          borderRadius: 6,
+          background: 'var(--surface-2, #f4f5f7)',
+          fontSize: 12,
+          color: 'var(--ink-4)',
+        }}
+      >
+        <span className="loading-spinner" style={{ width: 10, height: 10, borderWidth: 2 }} />
+        모델 상태 확인 중…
+      </div>
+    )
+  }
+
+  if (!model) return null
+
+  const isActive = model.active
+
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 7,
+        padding: '5px 10px',
+        borderRadius: 6,
+        background: isActive ? 'var(--c-safe-bg, #edfaf1)' : 'var(--surface-2, #f4f5f7)',
+        border: `1px solid ${isActive ? 'var(--c-safe-border, #b7eacb)' : 'var(--border, #e2e4e9)'}`,
+        fontSize: 12,
+        color: isActive ? 'var(--c-safe-text, #1a7a42)' : 'var(--ink-4)',
+        fontVariantNumeric: 'tabular-nums',
+        flexWrap: 'wrap' as const,
+      }}
+    >
+      {/* status dot */}
+      <span
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: '50%',
+          background: isActive ? 'var(--c-safe, #22c55e)' : 'var(--ink-5, #c0c4ce)',
+          flexShrink: 0,
+        }}
+      />
+      {isActive ? (
+        <span>
+          <strong style={{ fontWeight: 600 }}>활성 모델:</strong>{' '}
+          {model.model_kind?.toUpperCase() ?? '–'}
+          {model.trained_at && (
+            <> · 학습 {formatTrainedAt(model.trained_at)}</>
+          )}
+          {model.n_samples !== undefined && (
+            <> · 표본 {model.n_samples.toLocaleString()}
+              {model.n_positive !== undefined && (
+                <>(양성 {model.n_positive.toLocaleString()})</>
+              )}
+            </>
+          )}
+          {model.feature_count !== undefined && (
+            <> · 피처 {model.feature_count}개</>
+          )}
+        </span>
+      ) : (
+        <span>활성 모델 없음 — 룰+그래프만 사용</span>
+      )}
+    </div>
+  )
 }
 
 // ─── sub-components ─────────────────────────────────────────────────────────
@@ -80,6 +172,18 @@ export function RetrainPanel() {
   const [result, setResult] = useState<RetrainResponse | null>(null)
   const [emptyMsg, setEmptyMsg] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [persist, setPersist] = useState(false)
+  const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
+  const [activeModelLoading, setActiveModelLoading] = useState(true)
+
+  // Fetch active model status on mount
+  useEffect(() => {
+    setActiveModelLoading(true)
+    getActiveModel()
+      .then(setActiveModel)
+      .catch(() => setActiveModel({ active: false }))
+      .finally(() => setActiveModelLoading(false))
+  }, [])
 
   async function handleRetrain() {
     setLoading(true)
@@ -87,8 +191,14 @@ export function RetrainPanel() {
     setEmptyMsg(null)
     setErrorMsg(null)
     try {
-      const res = await retrain('rf', 5)
+      const res = await retrain('rf', 5, persist)
       setResult(res)
+      // Refresh active model status after successful retrain
+      if (persist) {
+        getActiveModel()
+          .then(setActiveModel)
+          .catch(() => {/* silent */})
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '알 수 없는 오류'
       // 409 — insufficient feedback labels
@@ -114,6 +224,11 @@ export function RetrainPanel() {
           </span>
         </div>
 
+        {/* Active model badge */}
+        <div style={{ marginBottom: 20 }}>
+          <ActiveModelBadge model={activeModel} loading={activeModelLoading} />
+        </div>
+
         {/* Description card */}
         <div className="chart-card" style={{ marginBottom: 20 }}>
           <p style={{ margin: 0, color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.65 }}>
@@ -125,8 +240,8 @@ export function RetrainPanel() {
           </p>
         </div>
 
-        {/* Run button */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+        {/* Run button + persist checkbox */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
           <button
             className="btn btn-primary"
             onClick={handleRetrain}
@@ -142,12 +257,57 @@ export function RetrainPanel() {
               '재학습 실행'
             )}
           </button>
+
+          {/* Persist checkbox */}
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.5 : 1,
+              fontSize: 13,
+              color: 'var(--ink-2)',
+              userSelect: 'none',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={persist}
+              onChange={(e) => setPersist(e.target.checked)}
+              disabled={loading}
+              style={{ width: 14, height: 14, accentColor: 'var(--accent)', cursor: 'inherit' }}
+            />
+            라이브 스코어링에 활성화 (모델 영속화)
+          </label>
+
           {loading && (
             <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>
               교차검증을 실행 중입니다. 잠시 기다려 주세요.
             </span>
           )}
         </div>
+
+        {/* Persist activated notice */}
+        {result?.persisted && (
+          <div
+            className="chart-card"
+            style={{ borderLeft: '3px solid var(--c-safe)', marginBottom: 20 }}
+          >
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--c-safe)" strokeWidth="1.8" strokeLinecap="round" style={{ flexShrink: 0, marginTop: 1 }}>
+                <circle cx="8" cy="8" r="6.5" />
+                <polyline points="5,8.5 7,10.5 11,6" />
+              </svg>
+              <span style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6 }}>
+                모델이 활성화되어 다음 스코어링부터 반영됩니다.
+                {result.model_path && (
+                  <> 저장 경로: <code style={{ fontSize: 11, background: 'var(--surface-2, #f4f5f7)', padding: '1px 4px', borderRadius: 3 }}>{result.model_path}</code></>
+                )}
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* 409 — insufficient labels */}
         {emptyMsg && (

@@ -16,6 +16,7 @@ from api.deps import (
     require_data_class,
 )
 from api.schemas import (
+    ActiveModelResponse,
     MetricsModel,
     ProvenanceModel,
     RetrainRequest,
@@ -107,6 +108,7 @@ def retrain(
             model_kind=body.model,
             n_folds=body.folds,
             store=store,
+            persist=body.persist,
         )
     except ValueError as e:
         raise HTTPException(
@@ -130,4 +132,44 @@ def retrain(
         delta_auc=res.delta_auc,
         delta_f1=res.delta_f1,
         note=_NOTE,
+        persisted=res.persisted,
+        model_path=res.model_path,
+        trained_at=res.trained_at,
+    )
+
+
+# ==================================================================
+# GET /detection/model — 활성 재학습 모델 메타 조회
+# ==================================================================
+@router.get(
+    "/model",
+    response_model=ActiveModelResponse,
+    summary="활성 재학습 모델 메타 조회",
+    description=(
+        "영속화된 활성 재학습 모델의 메타 정보를 반환한다. "
+        "모델이 없으면 active=False 를 반환한다. "
+        "FRAUD_CASE 등급 권한(FRAUD_ANALYST 이상) 필요."
+    ),
+    responses={
+        200: {"description": "활성 모델 메타(없으면 active=False)"},
+    },
+)
+def get_active_model(
+    principal: Principal = Depends(
+        require_data_class(DataClass.FRAUD_CASE, "api.detection.model")
+    ),
+) -> ActiveModelResponse:
+    """영속화된 활성 모델 메타를 반환한다. 없으면 active=False."""
+    from detection import model_store
+
+    meta = model_store.active_model_meta()
+    if meta is None:
+        return ActiveModelResponse(active=False)
+    return ActiveModelResponse(
+        active=True,
+        trained_at=meta.trained_at,
+        model_kind=meta.model_kind,
+        n_samples=meta.n_samples,
+        n_positive=meta.n_positive,
+        feature_count=len(meta.feature_names),
     )

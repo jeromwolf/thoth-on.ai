@@ -302,6 +302,7 @@ class RetrainRequest(BaseModel):
         description="ML 모델 종류: lr(LogisticRegression) | rf(RandomForest) | gb(GradientBoosting)",
     )
     folds: int = Field(5, ge=2, le=20, description="Stratified K-fold 교차검증 fold 수")
+    persist: bool = Field(False, description="재학습 모델을 영속화(joblib)해 라이브 스코어링에 활성화")
 
 
 class ProvenanceModel(BaseModel):
@@ -339,3 +340,17 @@ class RetrainResponse(BaseModel):
     delta_auc: float = Field(..., description="ΔAUC = feedback.auc - baseline.auc (참고치)")
     delta_f1: float = Field(..., description="ΔF1 = feedback.f1 - baseline.f1 (참고치)")
     note: str = Field(..., description="평가 정직성 안내 메모")
+    persisted: bool = Field(False, description="모델 영속화 완료 여부")
+    model_path: Optional[str] = Field(None, description="영속화된 모델 파일 경로")
+    trained_at: Optional[str] = Field(None, description="모델 학습 완료 시각(ISO-8601)")
+
+
+class ActiveModelResponse(BaseModel):
+    """활성 재학습 모델 메타 응답."""
+
+    active: bool = Field(..., description="영속화된 활성 모델이 존재하는지 여부")
+    trained_at: Optional[str] = Field(None, description="모델 학습 완료 시각(ISO-8601)")
+    model_kind: Optional[str] = Field(None, description="ML 모델 종류(lr/rf/gb)")
+    n_samples: Optional[int] = Field(None, description="학습 샘플 수")
+    n_positive: Optional[int] = Field(None, description="양성(사기) 샘플 수")
+    feature_count: Optional[int] = Field(None, description="피처 수")

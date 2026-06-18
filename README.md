@@ -80,7 +80,7 @@ cd console && npm run dev
 python -m detection.evaluate   # 주입 링 재현율·정밀도·점수 분리도 측정
 python -m detection.feedback   # 조사관 판정→운영 라벨 재학습(피드백 루프) + provenance 리포트
 ```
-> 피드백 루프: 조사관 판정(FRAUD/NORMAL)을 운영 라벨로 환원해 모델을 재학습한다(`POST /detection/retrain`, 콘솔 재학습 패널). **라벨(y)만 조작·피처(X) 불변으로 누수 차단**, baseline(ground truth)과 feedback(판정 라벨)은 서로 다른 라벨 집합이라 delta는 참고치임을 명시한다.
+> **피드백 루프(서빙까지 폐쇄):** 조사관 판정(FRAUD/NORMAL)을 운영 라벨로 환원해 모델을 재학습하고(`POST /detection/retrain`, 콘솔 재학습 패널), `persist=true` 시 모델을 영속화(`detection/model_store.py`, joblib)해 **라이브 스코어링에 실제 반영**한다(`score_customers(use_ml=True)` → `ML_FRAUD_PROB` corroborating 신호). 활성 모델은 `GET /detection/model`로 확인. **라벨(y)만 조작·피처(X) 불변으로 누수 차단**. 정직성: ① baseline(ground truth)과 feedback(판정 라벨)은 서로 다른 라벨 집합이라 delta는 참고치, ② `use_ml` 스코어링은 *서빙* 경로로 본질상 in-sample이며 일반화 성능은 `detection.ml_model`의 out-of-fold가 별도 측정한다.
 
 ## 진행 현황
 - ✅ **WP0** 부트스트랩 (인프라·RBAC/감사 골격·테스트 러너)

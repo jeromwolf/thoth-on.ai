@@ -5,6 +5,7 @@ import type {
   GraphResponse,
   KpiResponse,
   RetrainResponse,
+  ActiveModel,
 } from '../types'
 
 export interface AssignRequest {
@@ -66,8 +67,13 @@ export function fetchKpi(threshold?: number): Promise<KpiResponse> {
 export interface RetrainRequest {
   model: string
   folds: number
+  persist: boolean
 }
 
-export function retrain(model: string, folds: number): Promise<RetrainResponse> {
-  return post<RetrainResponse>('/detection/retrain', { model, folds } satisfies RetrainRequest)
+export function retrain(model: string, folds: number, persist = false): Promise<RetrainResponse> {
+  return post<RetrainResponse>('/detection/retrain', { model, folds, persist } satisfies RetrainRequest)
+}
+
+export function getActiveModel(): Promise<ActiveModel> {
+  return get<ActiveModel>('/detection/model')
 }

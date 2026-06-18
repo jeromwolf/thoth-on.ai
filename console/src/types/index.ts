@@ -167,6 +167,19 @@ export interface RetrainResponse {
   delta_auc: number
   delta_f1: number
   note: string
+  // persistence fields (present when persist=true)
+  persisted?: boolean
+  model_path?: string | null
+  trained_at?: string | null
+}
+
+export interface ActiveModel {
+  active: boolean
+  trained_at?: string
+  model_kind?: string
+  n_samples?: number
+  n_positive?: number
+  feature_count?: number
 }
 
 // UI state types

@@ -25,6 +25,7 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 from dataclasses import dataclass
 from typing import Optional
 
@@ -161,6 +162,9 @@ class RetrainResult:
         n_folds: 교차검증 fold 수.
         delta_auc: feedback.auc - baseline.auc (참고치 — 라벨 집합 상이).
         delta_f1: feedback.f1 - baseline.f1 (참고치 — 라벨 집합 상이).
+        persisted: 재학습 모델을 디스크에 영속화했는지 여부(persist=True 일 때).
+        model_path: 영속화한 모델 파일 경로(persist 시).
+        trained_at: 영속화 모델 학습 시각(ISO UTC, persist 시).
     """
 
     provenance: LabelProvenance
@@ -170,6 +174,9 @@ class RetrainResult:
     n_folds: int
     delta_auc: float
     delta_f1: float
+    persisted: bool = False
+    model_path: Optional[str] = None
+    trained_at: Optional[str] = None
 
 
 def _oof_metrics(
@@ -193,6 +200,7 @@ def retrain_with_feedback(
     model_kind: str = "rf",
     n_folds: int = ml_model.DEFAULT_FOLDS,
     store: Optional[CaseStore] = None,
+    persist: bool = False,
 ) -> RetrainResult:
     """조사관 판정을 운영 라벨로 반영해 재학습하고 baseline 과 정직 비교한다.
 
@@ -210,9 +218,12 @@ def retrain_with_feedback(
         model_kind: ML 모델 종류('lr'/'rf'/'gb').
         n_folds: 교차검증 fold 수.
         store: 케이스 저장소. None 이면 ``CaseStore()`` 를 새로 만든다.
+        persist: True 면 metrics 산출 후 병합 라벨로 모델을 영속화한다
+            (detection.model_store) — 라이브 스코어링 주입용 배포 모델. 영속화는
+            피처(X)는 라벨-free, 라벨(y)만 학습 타깃으로 쓴다(누수 차단).
 
     Returns:
-        ``RetrainResult``.
+        ``RetrainResult``. persist=True 면 persisted/model_path/trained_at 채움.
 
     Raises:
         ValueError: 병합 라벨의 양성(1)이 ``_MIN_POSITIVE`` 미만이거나 단일 클래스라
@@ -239,6 +250,23 @@ def retrain_with_feedback(
         fm, merged, model_kind=model_kind, n_folds=n_folds, label="feedback(판정)"
     )
 
+    persisted = False
+    model_path: Optional[str] = None
+    trained_at: Optional[str] = None
+    if persist:
+        # 지연 임포트(순환/미설치 가드). 병합 라벨로 배포 모델 영속화.
+        from detection import model_store
+
+        meta = model_store.train_and_persist(
+            labels=merged,
+            model_kind=model_kind,
+            fm=fm,
+            provenance=dataclasses.asdict(prov),
+        )
+        persisted = True
+        model_path = meta.path
+        trained_at = meta.trained_at
+
     return RetrainResult(
         provenance=prov,
         baseline=baseline,
@@ -247,6 +275,9 @@ def retrain_with_feedback(
         n_folds=n_folds,
         delta_auc=feedback.auc - baseline.auc,
         delta_f1=feedback.f1 - baseline.f1,
+        persisted=persisted,
+        model_path=model_path,
+        trained_at=trained_at,
     )
 
 
