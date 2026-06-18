@@ -28,9 +28,9 @@ COPY detection/ ./detection/
 COPY explain/  ./explain/
 COPY ingest/   ./ingest/
 COPY graph/    ./graph/
-COPY __init__.py ./
 
 # 패키지를 editable 모드 없이 PYTHONPATH 로 해결
+# (저장소 루트는 패키지가 아님 — api/thoth/core/... 가 PYTHONPATH=/app 로 최상위 임포트됨)
 ENV PYTHONPATH=/app
 
 # 비루트 사용자로 전환
