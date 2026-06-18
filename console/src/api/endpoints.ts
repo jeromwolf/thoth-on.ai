@@ -6,6 +6,7 @@ import type {
   KpiResponse,
   RetrainResponse,
   ActiveModel,
+  RescoreSummary,
 } from '../types'
 
 export interface AssignRequest {
@@ -76,4 +77,8 @@ export function retrain(model: string, folds: number, persist = false): Promise<
 
 export function getActiveModel(): Promise<ActiveModel> {
   return get<ActiveModel>('/detection/model')
+}
+
+export function rescore(): Promise<RescoreSummary> {
+  return post<RescoreSummary>('/detection/rescore', {})
 }

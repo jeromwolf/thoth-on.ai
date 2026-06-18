@@ -10,15 +10,20 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from typing import Any, Dict, List
+
+from api import service
 from api.deps import (
     Principal,
     get_case_store,
+    get_signal_cache,
     require_data_class,
 )
 from api.schemas import (
     ActiveModelResponse,
     MetricsModel,
     ProvenanceModel,
+    RescoreResponse,
     RetrainRequest,
     RetrainResponse,
 )
@@ -136,6 +141,59 @@ def retrain(
         model_path=res.model_path,
         trained_at=res.trained_at,
     )
+
+
+# ==================================================================
+# POST /detection/rescore — 케이스 큐 재스코어링(모델 반영)
+# ==================================================================
+@router.post(
+    "/rescore",
+    response_model=RescoreResponse,
+    summary="케이스 큐 재스코어링(모델 반영)",
+    description=(
+        "리스크 스코어를 재계산해 케이스 큐 점수와 신호 캐시에 반영한다. "
+        "영속화된 활성 재학습 모델이 있으면 그 사기확률을 점수에 가산(use_ml)하므로, "
+        "재학습 결과가 조사관 큐 우선순위에 즉시 반영된다. "
+        "기존 케이스는 점수만 갱신(상태·이력 불변), 임계 초과 신규 고객은 케이스 생성. "
+        "scikit-learn 및 Neo4j 가 모두 가용해야 실행 가능. "
+        "FRAUD_CASE 등급 권한(FRAUD_ANALYST 이상) 필요."
+    ),
+    responses={
+        503: {"description": "scikit-learn 미설치 또는 Neo4j 미가용"},
+    },
+)
+def rescore(
+    principal: Principal = Depends(
+        require_data_class(DataClass.FRAUD_CASE, "api.detection.rescore")
+    ),
+    store: CaseStore = Depends(get_case_store),
+    signal_cache: Dict[str, List[Dict[str, Any]]] = Depends(get_signal_cache),
+) -> RescoreResponse:
+    """리스크 스코어를 재계산해 케이스 큐 점수에 반영한다(활성 모델 있으면 ML 가산)."""
+    # scikit-learn 설치 여부 확인.
+    from detection import ml_model
+    if not ml_model._SKLEARN:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="scikit-learn 미설치 — .venv/bin/pip install scikit-learn 후 재시도",
+        )
+
+    # Neo4j 가용성 확인.
+    from thoth import db
+    if not db.healthcheck():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Neo4j 미가용 — make up && make wait-neo4j 후 재시도",
+        )
+
+    # 활성 재학습 모델이 있으면 그 사기확률을 점수에 반영.
+    from detection import model_store
+    use_ml = model_store.active_model_meta() is not None
+
+    summary = service.rescore_cases(
+        store, signal_cache, use_ml=use_ml, actor=principal.actor
+    )
+    return RescoreResponse(**summary)
 
 
 # ==================================================================

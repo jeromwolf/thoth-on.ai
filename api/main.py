@@ -13,6 +13,7 @@
     · GET  /graph/customer/{customer_id} — 고객 서브네트워크(vis-network)     [FRAUD_CASE]
     · GET  /kpi                          — 경영 대시보드 KPI(FR-9.2)          [CLAIMS]
     · POST /detection/retrain  — 조사관 판정 피드백 재학습  [FRAUD_CASE]
+    · POST /detection/rescore  — 케이스 큐 재스코어링(모델 반영) [FRAUD_CASE]
     · GET  /detection/model   — 활성 재학습 모델 메타      [FRAUD_CASE]
 
 실행:
@@ -124,8 +125,17 @@ def create_app() -> FastAPI:
                 )
                 return
 
-            logger.info("[bootstrap] Neo4j 연결 확인 완료. 리스크 스코어링 시작…")
-            risks = _scoring.score_customers()
+            # THOTH_USE_ML=1 이고 활성 재학습 모델이 있을 때만 ML 사기확률을 가산.
+            from detection import model_store as _model_store
+            want_ml = os.getenv("THOTH_USE_ML", "0") == "1"
+            has_model = _model_store.active_model_meta() is not None
+            use_ml = want_ml and has_model
+
+            logger.info(
+                "[bootstrap] Neo4j 연결 확인 완료. 리스크 스코어링 시작… (use_ml=%s)",
+                use_ml,
+            )
+            risks = _scoring.score_customers(use_ml=use_ml)
 
             # 케이스 큐 생성(멱등 — 이미 있는 케이스는 덮어쓰지 않음).
             store: CaseStore = app.state.case_store

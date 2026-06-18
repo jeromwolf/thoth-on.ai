@@ -240,6 +240,32 @@ class CaseStore:
             created_at=now, updated_at=now,
         )
 
+    # --- 점수 갱신 -----------------------------------------------
+    def update_score(
+        self, case_id: str, score: float, *, actor: str = "system"
+    ) -> Case:
+        """케이스 리스크 점수만 갱신한다(상태·이력·담당자 불변).
+
+        재학습 모델 활성화 등으로 스코어링 결과가 달라졌을 때, 큐 우선순위를
+        최신 점수로 반영하기 위한 경로다. 상태 머신은 건드리지 않으며 점수와
+        ``updated_at`` 만 변경한다. 모든 갱신은 ``case.rescore`` 로 감사 기록된다.
+        """
+        case = self._require(case_id)
+        now = _now_iso()
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE cases SET score = ?, updated_at = ? WHERE case_id = ?",
+                (float(score), now, case_id),
+            )
+        audit_event(
+            "case.rescore", actor, target=case_id,
+            meta={"old_score": round(case.score, 1),
+                  "new_score": round(float(score), 1)},
+        )
+        case.score = float(score)
+        case.updated_at = now
+        return case
+
     # --- 조회 ----------------------------------------------------
     def get_case(self, case_id: str) -> Optional[Case]:
         with self._conn() as conn:

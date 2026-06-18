@@ -182,6 +182,15 @@ export interface ActiveModel {
   feature_count?: number
 }
 
+// Rescore types — mirrors /detection/rescore response schema
+export interface RescoreSummary {
+  n_flagged: number
+  n_created: number
+  n_updated: number
+  n_unchanged: number
+  used_ml: boolean
+}
+
 // UI state types
 export type View = 'queue' | 'detail' | 'graph' | 'kpi' | 'retrain'
 

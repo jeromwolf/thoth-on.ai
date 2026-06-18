@@ -118,6 +118,43 @@ def test_missing_case_raises(store: CaseStore) -> None:
         store.transition("NOPE", CaseStatus.INVESTIGATING)
 
 
+def test_update_score_changes_score_and_audits(
+    store: CaseStore, monkeypatch
+) -> None:
+    """update_score 는 점수·updated_at 만 갱신하고 상태/이력은 불변, 감사 기록."""
+    import core.cases as cases_mod
+
+    events: list[tuple] = []
+    monkeypatch.setattr(
+        cases_mod, "audit_event",
+        lambda action, actor, **kw: events.append((action, actor, kw)),
+    )
+
+    created = store.create_case(case_id="C1", customer_id="CUST-1", score=60.0)
+    updated = store.update_score("C1", 85.0, actor="rescore-bot")
+
+    # 점수 갱신.
+    assert updated.score == 85.0
+    fresh = store.get_case("C1")
+    assert fresh.score == 85.0
+    # 상태 불변(미배정 유지), updated_at 변경.
+    assert fresh.status == CaseStatus.UNASSIGNED
+    assert fresh.updated_at >= created.created_at
+    # 이력 미생성(점수만 변경이므로 상태변경 이력 없음).
+    assert store.history("C1") == []
+    # 감사 기록(case.rescore) 발생 + old/new 점수 메타.
+    rescore_events = [e for e in events if e[0] == "case.rescore"]
+    assert len(rescore_events) == 1
+    assert rescore_events[0][1] == "rescore-bot"
+    assert rescore_events[0][2]["meta"]["old_score"] == 60.0
+    assert rescore_events[0][2]["meta"]["new_score"] == 85.0
+
+
+def test_update_score_missing_case_raises(store: CaseStore) -> None:
+    with pytest.raises(CaseNotFound):
+        store.update_score("NOPE", 50.0)
+
+
 # ===========================================================================
 # 근거 경로·기여 신호 첨부 (FR-5.1)
 # ===========================================================================

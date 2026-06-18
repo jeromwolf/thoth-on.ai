@@ -345,6 +345,18 @@ class RetrainResponse(BaseModel):
     trained_at: Optional[str] = Field(None, description="모델 학습 완료 시각(ISO-8601)")
 
 
+class RescoreResponse(BaseModel):
+    """케이스 큐 재스코어링 결과 (모델 반영)."""
+
+    n_flagged: int = Field(..., description="임계 초과로 플래그된 고객 수")
+    n_created: int = Field(..., description="새로 생성된 케이스 수")
+    n_updated: int = Field(..., description="점수가 갱신된 기존 케이스 수")
+    n_unchanged: int = Field(..., description="점수 동일로 변경 없는 케이스 수")
+    used_ml: bool = Field(
+        ..., description="재학습 ML 모델의 사기확률을 점수에 반영했는지 여부"
+    )
+
+
 class ActiveModelResponse(BaseModel):
     """활성 재학습 모델 메타 응답."""
 

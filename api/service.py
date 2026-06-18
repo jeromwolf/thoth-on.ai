@@ -62,6 +62,71 @@ def refresh_cases(
     return created
 
 
+def rescore_cases(
+    store: CaseStore,
+    signal_cache: Dict[str, List[Dict[str, Any]]],
+    *,
+    threshold: float = scoring.DEFAULT_ALERT_THRESHOLD,
+    use_ml: bool = False,
+    use_gds: bool = False,
+    use_embedding: bool = False,
+    actor: str = "system",
+) -> Dict[str, Any]:
+    """리스크 스코어를 재계산해 케이스 큐 점수와 신호 캐시에 반영한다.
+
+    재학습 모델이 활성화된 상태에서 ``use_ml=True`` 로 호출하면, 스코어링이
+    배포 모델의 사기확률(ML_FRAUD_PROB 신호)을 가산하므로 그 결과가 케이스
+    큐 점수에 그대로 반영된다 — 즉 "판정 → 재학습 → 배포 → 큐 점수 반영"의
+    피드백 루프를 큐 레벨에서 닫는다.
+
+    기존 케이스는 점수가 달라졌을 때만 ``update_score`` 로 갱신하고(상태·이력
+    불변), 임계 초과인데 케이스가 없으면 새로 생성한다. 전 고객 신호는 상세
+    조회용 캐시(``signal_cache``)에 최신본으로 덮어쓴다.
+
+    Returns:
+        ``{n_flagged, n_created, n_updated, n_unchanged, used_ml}`` 요약 dict.
+    """
+    risks = scoring.score_customers(
+        alert_threshold=threshold,
+        use_ml=use_ml,
+        use_gds=use_gds,
+        use_embedding=use_embedding,
+    )
+    flagged = scoring.alerts(risks, threshold=threshold)
+
+    n_created = 0
+    n_updated = 0
+    n_unchanged = 0
+    for r in flagged:
+        case_id = f"CASE-{r.customer_id}"
+        existing = store.get_case(case_id)
+        if existing is not None:
+            if existing.score != r.score:
+                store.update_score(case_id, r.score, actor=actor)
+                n_updated += 1
+            else:
+                n_unchanged += 1
+        else:
+            store.create_case(
+                case_id=case_id, customer_id=r.customer_id,
+                score=r.score, ring_id=r.ring_id, actor=actor,
+            )
+            n_created += 1
+
+    # 신호 캐시 갱신: 전 고객 최신 신호로 상세 근거를 항상 최신화.
+    for cid, risk in risks.items():
+        if risk.signals:
+            signal_cache[cid] = risk.signals
+
+    return {
+        "n_flagged": len(flagged),
+        "n_created": n_created,
+        "n_updated": n_updated,
+        "n_unchanged": n_unchanged,
+        "used_ml": use_ml,
+    }
+
+
 def score_signal_cache(
     *,
     threshold: float = scoring.DEFAULT_ALERT_THRESHOLD,

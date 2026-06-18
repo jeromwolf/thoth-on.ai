@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { retrain, getActiveModel } from '../api/endpoints'
-import type { RetrainResponse, RetrainMetrics, ActiveModel } from '../types'
+import { retrain, getActiveModel, rescore } from '../api/endpoints'
+import type { RetrainResponse, RetrainMetrics, ActiveModel, RescoreSummary } from '../types'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -176,6 +176,11 @@ export function RetrainPanel() {
   const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
   const [activeModelLoading, setActiveModelLoading] = useState(true)
 
+  // Rescore state
+  const [rescoring, setRescoring] = useState(false)
+  const [rescoreResult, setRescoreResult] = useState<RescoreSummary | null>(null)
+  const [rescoreError, setRescoreError] = useState<string | null>(null)
+
   // Fetch active model status on mount
   useEffect(() => {
     setActiveModelLoading(true)
@@ -209,6 +214,25 @@ export function RetrainPanel() {
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleRescore() {
+    setRescoring(true)
+    setRescoreResult(null)
+    setRescoreError(null)
+    try {
+      const res = await rescore()
+      setRescoreResult(res)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '알 수 없는 오류'
+      if (msg.includes('503') || msg.includes('unavailable') || msg.includes('미가용')) {
+        setRescoreError('sklearn 또는 Neo4j를 사용할 수 없습니다. 서버 상태를 확인한 뒤 다시 시도하세요.')
+      } else {
+        setRescoreError(`재스코어링 실패: ${msg}`)
+      }
+    } finally {
+      setRescoring(false)
     }
   }
 
@@ -306,6 +330,139 @@ export function RetrainPanel() {
                 )}
               </span>
             </div>
+          </div>
+        )}
+
+        {/* ── Rescore section — shown only when an active ML model exists ── */}
+        {!activeModelLoading && activeModel?.active && (
+          <div
+            className="chart-card"
+            style={{
+              marginBottom: 20,
+              borderLeft: '3px solid var(--accent)',
+              background: 'var(--surface-2, #f8f9fb)',
+            }}
+          >
+            {/* Section head */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)', marginBottom: 4 }}>
+                  큐에 반영 (재스코어링)
+                </div>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 520 }}>
+                  재스코어링하면 재학습 모델이 케이스 큐 점수에 반영됩니다.
+                  케이스 큐를 새로고침하면 변경된 점수가 보입니다.
+                </p>
+              </div>
+
+              <button
+                className="btn btn-secondary"
+                onClick={handleRescore}
+                disabled={rescoring}
+                style={{ minWidth: 130, flexShrink: 0 }}
+              >
+                {rescoring ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className="loading-spinner" style={{ width: 13, height: 13, borderWidth: 2 }} />
+                    재스코어링 중...
+                  </span>
+                ) : (
+                  '큐에 반영 (재스코어링)'
+                )}
+              </button>
+            </div>
+
+            {/* Rescore result summary */}
+            {rescoreResult && (
+              <div
+                style={{
+                  marginTop: 14,
+                  paddingTop: 14,
+                  borderTop: '1px solid var(--border, #e2e4e9)',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 10,
+                  alignItems: 'center',
+                }}
+              >
+                {/* Summary text */}
+                <span style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.55, flex: '1 1 260px' }}>
+                  케이스{' '}
+                  <strong style={{ color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
+                    {rescoreResult.n_flagged.toLocaleString()}
+                  </strong>
+                  건 중{' '}
+                  <strong style={{ color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>
+                    {rescoreResult.n_updated.toLocaleString()}
+                  </strong>
+                  건 점수 갱신 ·{' '}
+                  <strong style={{ color: 'var(--c-safe, #22c55e)', fontVariantNumeric: 'tabular-nums' }}>
+                    {rescoreResult.n_created.toLocaleString()}
+                  </strong>
+                  건 신규 탐지
+                </span>
+
+                {/* ML badge */}
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    padding: '3px 9px',
+                    borderRadius: 5,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: '0.02em',
+                    background: rescoreResult.used_ml
+                      ? 'var(--c-safe-bg, #edfaf1)'
+                      : 'var(--surface-2, #f4f5f7)',
+                    border: `1px solid ${rescoreResult.used_ml
+                      ? 'var(--c-safe-border, #b7eacb)'
+                      : 'var(--border, #e2e4e9)'}`,
+                    color: rescoreResult.used_ml
+                      ? 'var(--c-safe-text, #1a7a42)'
+                      : 'var(--ink-4)',
+                    flexShrink: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: rescoreResult.used_ml ? 'var(--c-safe, #22c55e)' : 'var(--ink-5, #c0c4ce)',
+                      flexShrink: 0,
+                    }}
+                  />
+                  {rescoreResult.used_ml ? 'ML 반영됨' : '룰만'}
+                </span>
+
+                {/* Unchanged stat (secondary) */}
+                {rescoreResult.n_unchanged > 0 && (
+                  <span style={{ fontSize: 12, color: 'var(--ink-5)', flexShrink: 0 }}>
+                    변화 없음 {rescoreResult.n_unchanged.toLocaleString()}건
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Rescore error */}
+            {rescoreError && (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: '9px 12px',
+                  borderRadius: 6,
+                  background: 'var(--c-danger-bg, #fff1f0)',
+                  border: '1px solid var(--c-danger-border, #ffc9c9)',
+                  fontSize: 12,
+                  color: 'var(--c-danger-text, #a61c0e)',
+                  lineHeight: 1.55,
+                }}
+              >
+                {rescoreError}
+              </div>
+            )}
           </div>
         )}
 
