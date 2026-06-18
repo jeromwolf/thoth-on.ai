@@ -137,8 +137,40 @@ export interface KpiResponse {
   savings_assumption: string
 }
 
+// Retrain types — mirrors /detection/retrain response schema
+export interface RetrainProvenance {
+  n_total: number
+  n_feedback: number
+  n_overrides: number
+  n_agree: number
+  n_base: number
+}
+
+export interface RetrainMetrics {
+  recall: number
+  precision: number
+  f1: number
+  fpr: number
+  auc: number
+  tp: number
+  fp: number
+  fn: number
+  tn: number
+}
+
+export interface RetrainResponse {
+  model_kind: string
+  n_folds: number
+  provenance: RetrainProvenance
+  baseline: RetrainMetrics
+  feedback: RetrainMetrics
+  delta_auc: number
+  delta_f1: number
+  note: string
+}
+
 // UI state types
-export type View = 'queue' | 'detail' | 'graph' | 'kpi'
+export type View = 'queue' | 'detail' | 'graph' | 'kpi' | 'retrain'
 
 export interface AppState {
   view: View

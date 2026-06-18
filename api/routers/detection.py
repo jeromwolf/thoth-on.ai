@@ -1,0 +1,133 @@
+"""탐지 라우터 — 판정 피드백 재학습 (WP4-3 · FR-4.3).
+
+조사관의 케이스 판정(FRAUD/NORMAL)을 운영 라벨로 반영해 ML 모델을 재학습하고,
+baseline(ground truth)과 feedback(판정 반영) 지표를 정직하게 비교·반환한다.
+
+⚠ baseline 과 feedback 은 **서로 다른 라벨 집합**으로 평가된다. delta 는 직접 비교가
+  아닌 참고치임을 응답 note 필드에 항상 명시한다(detection.feedback 모듈 정직성 원칙).
+"""
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from api.deps import (
+    Principal,
+    get_case_store,
+    require_data_class,
+)
+from api.schemas import (
+    MetricsModel,
+    ProvenanceModel,
+    RetrainRequest,
+    RetrainResponse,
+)
+from core.cases import CaseStore
+from core.security.rbac import DataClass
+from detection.feedback import retrain_with_feedback
+from detection.ml_model import Metrics
+
+router = APIRouter(prefix="/detection", tags=["detection"])
+
+_NOTE = (
+    "baseline(ground truth)과 feedback(판정 라벨)은 서로 다른 라벨 집합으로 평가 "
+    "— delta는 직접 비교가 아닌 참고치"
+)
+
+_VALID_MODELS = {"lr", "rf", "gb"}
+
+
+def _to_metrics_model(m: Metrics) -> MetricsModel:
+    """detection.ml_model.Metrics → MetricsModel 변환."""
+    return MetricsModel(
+        recall=m.recall,
+        precision=m.precision,
+        f1=m.f1,
+        fpr=m.fpr,
+        auc=m.auc,
+        tp=m.tp,
+        fp=m.fp,
+        fn=m.fn,
+        tn=m.tn,
+    )
+
+
+# ==================================================================
+# POST /detection/retrain — 판정 피드백 재학습
+# ==================================================================
+@router.post(
+    "/retrain",
+    response_model=RetrainResponse,
+    summary="조사관 판정 피드백 재학습",
+    description=(
+        "케이스 저장소에 쌓인 조사관 판정(FRAUD/NORMAL)을 운영 라벨로 반영해 "
+        "ML 모델을 재학습하고, baseline(ground truth)과 feedback(판정 반영) 지표를 "
+        "비교해 반환한다. scikit-learn 및 Neo4j 가 모두 가용해야 실행 가능. "
+        "FRAUD_CASE 등급 권한(FRAUD_ANALYST 이상) 필요."
+    ),
+    responses={
+        400: {"description": "잘못된 모델 종류"},
+        409: {"description": "판정 라벨 부족(양성 2건 미만)"},
+        503: {"description": "scikit-learn 미설치 또는 Neo4j 미가용"},
+    },
+)
+def retrain(
+    body: RetrainRequest,
+    principal: Principal = Depends(
+        require_data_class(DataClass.FRAUD_CASE, "api.detection.retrain")
+    ),
+    store: CaseStore = Depends(get_case_store),
+) -> RetrainResponse:
+    """조사관 판정 피드백을 운영 라벨로 반영해 ML 재학습 후 지표를 반환한다."""
+    # scikit-learn 설치 여부 확인.
+    from detection import ml_model
+    if not ml_model._SKLEARN:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="scikit-learn 미설치 — .venv/bin/pip install scikit-learn 후 재시도",
+        )
+
+    # Neo4j 가용성 확인.
+    from thoth import db
+    if not db.healthcheck():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Neo4j 미가용 — make up && make wait-neo4j 후 재시도",
+        )
+
+    # 모델 종류 검증.
+    if body.model not in _VALID_MODELS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"model 은 lr | rf | gb 중 하나여야 합니다 (입력값: {body.model!r})",
+        )
+
+    # 재학습 실행.
+    try:
+        res = retrain_with_feedback(
+            model_kind=body.model,
+            n_folds=body.folds,
+            store=store,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+
+    prov = res.provenance
+    return RetrainResponse(
+        model_kind=res.model_kind,
+        n_folds=res.n_folds,
+        provenance=ProvenanceModel(
+            n_total=prov.n_total,
+            n_feedback=prov.n_feedback,
+            n_overrides=prov.n_overrides,
+            n_agree=prov.n_agree,
+            n_base=prov.n_base,
+        ),
+        baseline=_to_metrics_model(res.baseline),
+        feedback=_to_metrics_model(res.feedback),
+        delta_auc=res.delta_auc,
+        delta_f1=res.delta_f1,
+        note=_NOTE,
+    )

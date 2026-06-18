@@ -1497,6 +1497,64 @@ body {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ============================================================
+   Retrain Panel — metrics comparison table
+   ============================================================ */
+.retrain-metric-section { margin-bottom: 8px; }
+
+.retrain-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-xs);
+}
+
+.retrain-table th {
+  text-align: left;
+  padding: 10px 16px;
+  color: var(--ink-3);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.retrain-table td {
+  padding: 10px 16px;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.retrain-table tr:last-child td { border-bottom: none; }
+.retrain-table tbody tr:hover { background: var(--bg-hover); }
+
+.retrain-metric-name {
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.retrain-metric-val {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.retrain-metric-delta {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.retrain-delta-pos { color: var(--c-safe); }
+.retrain-delta-neg { color: var(--c-danger); }
+.retrain-delta-neutral { color: var(--ink-4); }
+
+/* ============================================================
    Utilities
    ============================================================ */
 .mono { font-family: var(--font-mono); }

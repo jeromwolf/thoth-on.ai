@@ -78,14 +78,16 @@ cd console && npm run dev
 ## 탐지 실행 (WP2)
 ```bash
 python -m detection.evaluate   # 주입 링 재현율·정밀도·점수 분리도 측정
+python -m detection.feedback   # 조사관 판정→운영 라벨 재학습(피드백 루프) + provenance 리포트
 ```
+> 피드백 루프: 조사관 판정(FRAUD/NORMAL)을 운영 라벨로 환원해 모델을 재학습한다(`POST /detection/retrain`, 콘솔 재학습 패널). **라벨(y)만 조작·피처(X) 불변으로 누수 차단**, baseline(ground truth)과 feedback(판정 라벨)은 서로 다른 라벨 집합이라 delta는 참고치임을 명시한다.
 
 ## 진행 현황
 - ✅ **WP0** 부트스트랩 (인프라·RBAC/감사 골격·테스트 러너)
 - ✅ **WP1** 데이터 코어 (스키마·합성데이터·멱등적재·엔티티해소·가명처리)
 - ✅ **WP2** 탐지 코어 (공유엔티티·핫스팟·crash-for-cash·리스크 스코어링) — 합성데이터 기준 재현율 1.0 / 오탐 0
 - ✅ **WP3** GDS 파이프라인 (WCC/Louvain 커뮤니티 + Degree/PageRank 중심성) — 사기 링 15/15 단일 커뮤니티 응집
-- ✅ **WP4** 케이스 관리 + 설명가능성 (큐·상태전이·경로 첨부·자연어 소명문·환각 가드, LLM provider 추상화)
+- ✅ **WP4** 케이스 관리 + 설명가능성 (큐·상태전이·경로 첨부·자연어 소명문·환각 가드, LLM provider 추상화) + **판정 피드백 재학습**(조사관 판정→운영 라벨→재학습 루프)
 - ✅ **WP5** API/콘솔/시각화 (FastAPI REST + React + vis-network 관계망 뷰어)
 - ✅ **WP6** 운영화 (보안·감사·배포·경영 KPI 대시보드) — 적발률·절감액·처리량 KPI 확장 완료
 

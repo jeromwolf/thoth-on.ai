@@ -3,6 +3,7 @@ import { CaseQueue } from './components/CaseQueue'
 import { CaseDetail } from './components/CaseDetail'
 import { GraphView } from './components/GraphView'
 import { KpiDashboard } from './components/KpiDashboard'
+import { RetrainPanel } from './components/RetrainPanel'
 import type { CaseListItem, View } from './types'
 
 const X_ROLE = (import.meta.env.VITE_X_ROLE as string | undefined) ?? 'FRAUD_ANALYST'
@@ -47,6 +48,15 @@ function IconKpi() {
   )
 }
 
+function IconRetrain() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5" />
+      <polyline points="11,1 13.5,2.5 12,5" />
+    </svg>
+  )
+}
+
 function IconSearch() {
   return (
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -66,7 +76,7 @@ function ThothLogo() {
   )
 }
 
-type MainView = 'detail' | 'graph' | 'kpi' | 'empty'
+type MainView = 'detail' | 'graph' | 'kpi' | 'retrain' | 'empty'
 
 export default function App() {
   const [selectedCase, setSelectedCase] = useState<CaseListItem | null>(null)
@@ -91,6 +101,8 @@ export default function App() {
     setActiveNav(view)
     if (view === 'kpi') {
       setMainView('kpi')
+    } else if (view === 'retrain') {
+      setMainView('retrain')
     } else if (view === 'graph') {
       if (graphCustomerId) setMainView('graph')
       else if (selectedCase) {
@@ -159,6 +171,13 @@ export default function App() {
             <IconKpi />
             현황판
           </button>
+          <button
+            className={`nav-btn${activeNav === 'retrain' ? ' active' : ''}`}
+            onClick={() => navigateTo('retrain')}
+          >
+            <IconRetrain />
+            재학습
+          </button>
         </nav>
 
         <div className="header-divider" />
@@ -212,6 +231,8 @@ export default function App() {
         )}
 
         {mainView === 'kpi' && <KpiDashboard />}
+
+        {mainView === 'retrain' && <RetrainPanel />}
       </main>
     </div>
   )

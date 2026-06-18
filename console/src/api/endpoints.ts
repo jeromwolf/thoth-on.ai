@@ -4,6 +4,7 @@ import type {
   CaseDetailResponse,
   GraphResponse,
   KpiResponse,
+  RetrainResponse,
 } from '../types'
 
 export interface AssignRequest {
@@ -60,4 +61,13 @@ export function fetchCustomerGraph(customerId: string): Promise<GraphResponse> {
 export function fetchKpi(threshold?: number): Promise<KpiResponse> {
   const q = threshold !== undefined ? `?threshold=${threshold}` : ''
   return get<KpiResponse>(`/kpi${q}`)
+}
+
+export interface RetrainRequest {
+  model: string
+  folds: number
+}
+
+export function retrain(model: string, folds: number): Promise<RetrainResponse> {
+  return post<RetrainResponse>('/detection/retrain', { model, folds } satisfies RetrainRequest)
 }

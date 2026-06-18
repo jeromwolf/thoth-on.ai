@@ -12,6 +12,7 @@
     · POST /cases/{case_id}/verdict      — 조사관 판정(사기/정상/보류)        [FRAUD_CASE]
     · GET  /graph/customer/{customer_id} — 고객 서브네트워크(vis-network)     [FRAUD_CASE]
     · GET  /kpi                          — 경영 대시보드 KPI(FR-9.2)          [CLAIMS]
+    · POST /detection/retrain  — 조사관 판정 피드백 재학습  [FRAUD_CASE]
 
 실행:
     make serve                       # THOTH_API_PORT(기본 8468)
@@ -25,7 +26,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import cases, graph, health, kpi
+from api.routers import cases, detection, graph, health, kpi
 from core.cases import CaseStore
 from thoth.config import get_settings
 
@@ -53,6 +54,7 @@ tags_metadata = [
     {"name": "cases", "description": "의심 케이스 큐·상세·배정·판정 (FR-4.x)"},
     {"name": "graph", "description": "고객 서브네트워크 탐색(vis-network)"},
     {"name": "kpi", "description": "경영 대시보드 KPI (FR-9.2)"},
+    {"name": "detection", "description": "판정 피드백 재학습 (FR-4.3)"},
 ]
 
 
@@ -88,6 +90,7 @@ def create_app() -> FastAPI:
     app.include_router(cases.router)
     app.include_router(graph.router)
     app.include_router(kpi.router)
+    app.include_router(detection.router)
 
     # ------------------------------------------------------------------
     # 기동 부트스트랩: Neo4j 가용 시 리스크 스코어링 → 케이스 큐 + 신호 캐시 적재.

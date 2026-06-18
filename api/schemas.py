@@ -289,3 +289,53 @@ class ErrorResponse(BaseModel):
     """표준 오류 응답."""
 
     detail: str
+
+
+# ==================================================================
+# 탐지 — 판정 피드백 재학습 (FR-4.3)
+# ==================================================================
+class RetrainRequest(BaseModel):
+    """판정 피드백 재학습 요청."""
+
+    model: str = Field(
+        "rf",
+        description="ML 모델 종류: lr(LogisticRegression) | rf(RandomForest) | gb(GradientBoosting)",
+    )
+    folds: int = Field(5, ge=2, le=20, description="Stratified K-fold 교차검증 fold 수")
+
+
+class ProvenanceModel(BaseModel):
+    """병합 라벨의 출처 분해 — 판정이 ground truth 를 얼마나 덮었는지."""
+
+    n_total: int = Field(..., description="전체 고객 수")
+    n_feedback: int = Field(..., description="판정으로 라벨이 결정된 고객 수")
+    n_overrides: int = Field(..., description="판정 라벨 != ground truth 라벨로 뒤집힌 고객 수")
+    n_agree: int = Field(..., description="판정 라벨 == ground truth 라벨(재확인) 고객 수")
+    n_base: int = Field(..., description="판정 없어 ground truth 라벨 그대로 유지된 고객 수")
+
+
+class MetricsModel(BaseModel):
+    """F1-최적 운영점 기준 분류 지표 (out-of-fold)."""
+
+    recall: float = Field(..., description="재현율(민감도)")
+    precision: float = Field(..., description="정밀도")
+    f1: float = Field(..., description="F1 점수")
+    fpr: float = Field(..., description="위양성률(False Positive Rate)")
+    auc: float = Field(..., description="ROC-AUC")
+    tp: int = Field(..., description="True Positive")
+    fp: int = Field(..., description="False Positive")
+    fn: int = Field(..., description="False Negative")
+    tn: int = Field(..., description="True Negative")
+
+
+class RetrainResponse(BaseModel):
+    """판정 피드백 재학습 결과 (FR-4.3)."""
+
+    model_kind: str = Field(..., description="사용한 ML 모델 종류")
+    n_folds: int = Field(..., description="교차검증 fold 수")
+    provenance: ProvenanceModel = Field(..., description="병합 라벨 출처 분해")
+    baseline: MetricsModel = Field(..., description="ground truth 라벨 기준 out-of-fold 지표")
+    feedback: MetricsModel = Field(..., description="판정 반영 라벨 기준 out-of-fold 지표")
+    delta_auc: float = Field(..., description="ΔAUC = feedback.auc - baseline.auc (참고치)")
+    delta_f1: float = Field(..., description="ΔF1 = feedback.f1 - baseline.f1 (참고치)")
+    note: str = Field(..., description="평가 정직성 안내 메모")
