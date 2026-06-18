@@ -283,6 +283,37 @@ body {
   50% { opacity: 0.45; }
 }
 
+/* LLM Status Badge */
+.llm-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+
+.llm-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--llm-dot, #94a3b8);
+  flex-shrink: 0;
+}
+
+.llm-status-label {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ============================================================
    Sidebar — Case Queue
    ============================================================ */
