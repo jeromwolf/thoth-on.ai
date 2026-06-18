@@ -65,7 +65,7 @@ cd console && npm run dev
 ## 구조
 | 디렉토리 | 역할 | 대응 FR |
 |---|---|---|
-| `ingest/` | 배치 적재·엔티티 해소·가명처리 | FR-1.x |
+| `ingest/` | 배치·증분 적재·엔티티 해소·가명처리 | FR-1.x |
 | `graph/` | cypher 스키마·온톨로지·시드 | FR-2.x |
 | `detection/` | 탐지 쿼리·GDS·스코어링 | FR-3.x |
 | `explain/` | LLM 설명(provider 추상화: mock/anthropic/openai/ollama, 환각 가드) | FR-5.x |
@@ -74,6 +74,13 @@ cd console && npm run dev
 | `core/security/` | RBAC·감사 | NFR |
 | `tests/` | AC 기반 테스트 | — |
 | `docs/` | 운영 문서·데모 시나리오 | — |
+
+## 적재 (배치 / 증분)
+```bash
+python -m ingest.loader load     <data_dir>   # 전량 멱등 적재(MERGE)
+python -m ingest.loader load-inc <data_dir>   # 증분 적재 — created_at 워터마크 이후 신규 행만
+```
+> 증분 적재: `data/ingest_state.json` 워터마크(마지막 처리 `created_at`) 이후 행만 적재한다. FK 맵은 전체 소스에서 구성(신규 청구가 기존 노드 참조 가능), 관계 전용 소스(brokered/sold_policy)는 멱등 재MERGE. `--since`로 워터마크 직접 지정 가능. 적재 후 `POST /detection/rescore`로 케이스 큐를 갱신한다.
 
 ## 탐지 실행 (WP2)
 ```bash

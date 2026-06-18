@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,9 @@ from ingest.pii import hash_pii
 from thoth import db
 
 BATCH_SIZE = 1000
+
+# 증분 적재 상태 파일(워터마크·실행 이력) 기본 경로. 환경변수로 재정의 가능.
+DEFAULT_STATE_PATH = Path(os.getenv("THOTH_INGEST_STATE", "data/ingest_state.json"))
 
 # ② 듀얼 레이어 — 캐글 호환 행동/시계열·범주 청구 속성(속성 ML 적용용).
 #   합성 generator(_KAGGLE_BEHAVIORAL_AXES)와 컬럼명을 일치시켜 Claim 노드에 적재한다.
@@ -846,12 +850,267 @@ def load(data_dir: str | Path, *, batch_size: int = BATCH_SIZE) -> dict[str, int
     return counts
 
 
+# ==================================================================
+# 증분 적재 (incremental ingest) — 직전 워터마크 이후 신규/변경 행만 적재
+# ==================================================================
+#
+# 설계 원칙:
+#   - 기존 load()/_load_* 헬퍼는 일절 변경하지 않는다(순수 추가). 헬퍼들이
+#     (sess, rows, ...) 형태로 행 리스트를 받으므로, 행 리스트만 델타로 필터하면
+#     그대로 재사용할 수 있다. MERGE 멱등성도 그대로 유지된다.
+#   - 워터마크는 created_at(ISO8601 문자열) 컬럼의 최대값. ISO 문자열의 사전식
+#     비교가 곧 시간순 비교이므로 별도 파싱 없이 비교한다.
+#   - brokered/sold_policy(관계 전용 소스)는 created_at 가 없어 매 실행 전량을
+#     멱등 재MERGE 한다(중복 없음).
+
+
+def _max_created_at(rows: list[dict]) -> str | None:
+    """행들의 ``created_at`` 중 최대값(ISO 문자열)을 반환. 없으면 None.
+
+    빈 문자열/누락 created_at 은 무시한다.
+    """
+    best: str | None = None
+    for r in rows:
+        ca = _nz(r.get("created_at"))
+        if ca is None:
+            continue
+        if best is None or ca > best:
+            best = ca
+    return best
+
+
+def _filter_since(
+    rows: list[dict], watermark: str | None
+) -> tuple[list[dict], int]:
+    """``watermark`` 초과(created_at > watermark) 행만 추린다.
+
+    Returns:
+        (filtered_rows, skipped_count)
+
+    동작:
+        - watermark 가 None 이면 (전체 행, 0) — 최초 전량 적재.
+        - watermark 가 있으면 created_at > watermark 인 행만 통과.
+          created_at 가 비었거나 없는 행은 '이미 과거 적재분' 으로 간주하여
+          skip 하고 그 수를 skipped 로 센다.
+    """
+    if watermark is None:
+        return list(rows), 0
+    filtered: list[dict] = []
+    skipped = 0
+    for r in rows:
+        ca = _nz(r.get("created_at"))
+        if ca is None:
+            skipped += 1
+            continue
+        if ca > watermark:
+            filtered.append(r)
+        else:
+            skipped += 1
+    return filtered, skipped
+
+
+def read_ingest_state(state_path: str | Path | None = None) -> dict:
+    """증분 적재 상태 파일을 읽는다. 없으면 기본 빈 상태를 반환.
+
+    기본 상태: ``{"last_watermark": None, "runs": []}``.
+    """
+    path = Path(state_path) if state_path is not None else DEFAULT_STATE_PATH
+    if not path.exists():
+        return {"last_watermark": None, "runs": []}
+    with path.open(encoding="utf-8") as f:
+        return json.load(f)
+
+
+def write_ingest_state(state: dict, state_path: str | Path | None = None) -> None:
+    """증분 적재 상태 파일을 저장(부모 디렉토리 자동 생성)."""
+    path = Path(state_path) if state_path is not None else DEFAULT_STATE_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+def load_incremental(
+    data_dir: str | Path,
+    *,
+    since: str | None = None,
+    state_path: str | Path | None = None,
+    batch_size: int = BATCH_SIZE,
+) -> dict:
+    """직전 실행(워터마크) 이후 신규/변경 행만 Neo4j 에 멱등 적재한다.
+
+    워터마크는 ``created_at`` ISO8601 문자열의 최대값이다. ``since`` 인자가
+    주어지면 그것을, 아니면 상태 파일의 ``last_watermark`` 를 워터마크로 쓴다.
+    둘 다 없으면(None) 최초 전량 적재한다.
+
+    Returns:
+        델타 적재 건수 dict(``node:*``/``edge:*``) + 메타키
+        ``_watermark_before``/``_watermark_after``/``_skipped``.
+    """
+    data_path = Path(data_dir)
+    from thoth.config import get_settings
+    salt = get_settings().pii_salt
+
+    # --- 워터마크 결정: since 우선, 없으면 상태파일 last_watermark ---
+    state = read_ingest_state(state_path)
+    watermark_before = since if since is not None else state.get("last_watermark")
+
+    # --- 전체 소스 읽기 (load() 와 동일) ---
+    customers = _read_source(data_path, "customers")
+    policies = _read_source(data_path, "policies")
+    vehicles = _read_source(data_path, "vehicles")
+    accounts = _read_source(data_path, "accounts")
+    hospitals = _read_source(data_path, "hospitals")
+    repair_shops = _read_source(data_path, "repair_shops")
+    claims = _read_source(data_path, "claims")
+    brokers = _read_source_optional(data_path, "brokers")
+    agents = _read_source_optional(data_path, "agents")
+    brokered = _read_source_optional(data_path, "brokered")
+    sold_policy = _read_source_optional(data_path, "sold_policy")
+
+    # --- FK 맵은 전체 vehicles/accounts 에서 구성 ---
+    #     (신규 claim/policy 가 기존(과거 적재) 차량·계좌를 참조할 수 있으므로 전량 기준).
+    vin_by_vehicle = {
+        _nz(v.get("vehicle_id")): normalize_vin(v.get("vin"))
+        for v in vehicles if _nz(v.get("vehicle_id")) and normalize_vin(v.get("vin"))
+    }
+    accno_by_account = {
+        _nz(a.get("account_id")): normalize_account_no(a.get("account_no"))
+        for a in accounts if _nz(a.get("account_id")) and normalize_account_no(a.get("account_no"))
+    }
+
+    # --- 새 워터마크: 전체(델타 아님) 소스의 글로벌 created_at 최대값 ---
+    #     이번 실행이 처리한 파일 내용을 다음 실행이 다시 건드리지 않도록 한다.
+    global_max = watermark_before
+    for src in (customers, claims, policies, vehicles, accounts,
+                hospitals, repair_shops, brokers, agents):
+        m = _max_created_at(src)
+        if m is not None and (global_max is None or m > global_max):
+            global_max = m
+    watermark_after = global_max
+
+    # --- created_at 보유 소스: 델타 추출 ---
+    customers_delta, sk_cust = _filter_since(customers, watermark_before)
+    claims_delta, sk_claim = _filter_since(claims, watermark_before)
+    policies_delta, sk_pol = _filter_since(policies, watermark_before)
+    vehicles_delta, sk_veh = _filter_since(vehicles, watermark_before)
+    accounts_delta, sk_acc = _filter_since(accounts, watermark_before)
+    hospitals_delta, sk_hos = _filter_since(hospitals, watermark_before)
+    repair_shops_delta, sk_rep = _filter_since(repair_shops, watermark_before)
+    brokers_delta, sk_brk = _filter_since(brokers, watermark_before)
+    agents_delta, sk_agt = _filter_since(agents, watermark_before)
+    skipped_total = (sk_cust + sk_claim + sk_pol + sk_veh + sk_acc
+                     + sk_hos + sk_rep + sk_brk + sk_agt)
+
+    counts: dict[str, int] = {}
+    print("=" * 60)
+    print(" 증분 적재 (incremental ingest) — MERGE 멱등")
+    print(f"   워터마크 {watermark_before} → {watermark_after}")
+    print(f"   소스: {data_path} / skip {skipped_total:,}")
+    print("=" * 60)
+
+    with db.session() as sess:
+        # --- 노드(델타만) ---
+        print("[노드 적재 — 델타]")
+        counts["node:Customer"] = _load_customers(sess, customers_delta, salt, batch_size)
+        print(f"  Customer    : {counts['node:Customer']:,}")
+        counts["node:Claim"] = _load_claims(sess, claims_delta, batch_size)
+        print(f"  Claim       : {counts['node:Claim']:,}")
+        counts["node:Policy"] = _load_policies(sess, policies_delta, batch_size)
+        print(f"  Policy      : {counts['node:Policy']:,}")
+        counts["node:Vehicle"] = _load_vehicles(sess, vehicles_delta, batch_size)
+        print(f"  Vehicle     : {counts['node:Vehicle']:,}")
+        counts["node:Account"] = _load_accounts(sess, accounts_delta, salt, batch_size)
+        print(f"  Account     : {counts['node:Account']:,}")
+        counts["node:Hospital"] = _load_hospitals(sess, hospitals_delta, batch_size)
+        print(f"  Hospital    : {counts['node:Hospital']:,}")
+        counts["node:RepairShop"] = _load_repair_shops(sess, repair_shops_delta, batch_size)
+        print(f"  RepairShop  : {counts['node:RepairShop']:,}")
+        if brokers_delta:
+            counts["node:Broker"] = _load_brokers(sess, brokers_delta, batch_size)
+            print(f"  Broker      : {counts['node:Broker']:,} (WP-KR)")
+        if agents_delta:
+            counts["node:Agent"] = _load_agents(sess, agents_delta, batch_size)
+            print(f"  Agent       : {counts['node:Agent']:,} (WP-KR)")
+        # Address/Phone 파생은 델타 customers 에서만 생성.
+        n_addr, n_phone = _load_addresses_and_phones(sess, customers_delta, salt, batch_size)
+        counts["node:Address"] = n_addr
+        counts["node:Phone"] = n_phone
+        print(f"  Address     : {n_addr:,} (ETL 파생)")
+        print(f"  Phone       : {n_phone:,} (ETL 파생)")
+
+        # --- 엣지(델타 노드 소스 기준) ---
+        print("[엣지 적재 — 델타]")
+        counts["edge:FILED"] = _load_edges_filed(sess, claims_delta, batch_size)
+        print(f"  FILED        : {counts['edge:FILED']:,}")
+        counts["edge:HOLDS"] = _load_edges_holds(sess, policies_delta, batch_size)
+        print(f"  HOLDS        : {counts['edge:HOLDS']:,}")
+        counts["edge:COVERS"] = _load_edges_covers(sess, policies_delta, vin_by_vehicle, batch_size)
+        print(f"  COVERS       : {counts['edge:COVERS']:,}")
+        counts["edge:INVOLVES"] = _load_edges_involves(sess, claims_delta, vin_by_vehicle, batch_size)
+        print(f"  INVOLVES     : {counts['edge:INVOLVES']:,}")
+        counts["edge:TREATED_AT"] = _load_edges_treated_at(sess, claims_delta, batch_size)
+        print(f"  TREATED_AT   : {counts['edge:TREATED_AT']:,}")
+        counts["edge:REPAIRED_AT"] = _load_edges_repaired_at(sess, claims_delta, batch_size)
+        print(f"  REPAIRED_AT  : {counts['edge:REPAIRED_AT']:,}")
+        counts["edge:PAID_TO"] = _load_edges_paid_to(sess, claims_delta, accno_by_account, batch_size)
+        print(f"  PAID_TO      : {counts['edge:PAID_TO']:,}")
+        counts["edge:LIVES_AT"] = _load_edges_lives_at(sess, customers_delta, salt, batch_size)
+        print(f"  LIVES_AT     : {counts['edge:LIVES_AT']:,}")
+        counts["edge:OWNS"] = _load_edges_owns(sess, vehicles_delta, batch_size)
+        print(f"  OWNS         : {counts['edge:OWNS']:,}")
+        counts["edge:HAS_PHONE"] = _load_edges_has_phone(sess, customers_delta, salt, batch_size)
+        print(f"  HAS_PHONE    : {counts['edge:HAS_PHONE']:,}")
+        counts["edge:WITNESSED_BY"] = _load_edges_witnessed_by(sess, claims_delta, batch_size)
+        print(f"  WITNESSED_BY : {counts['edge:WITNESSED_BY']:,}")
+        # 관계 전용 소스(created_at 없음)는 전량 멱등 재MERGE.
+        if brokered:
+            counts["edge:BROKERED"] = _load_edges_brokered(sess, brokered, batch_size)
+            print(f"  BROKERED     : {counts['edge:BROKERED']:,} (WP-KR)")
+        if sold_policy:
+            counts["edge:SOLD_POLICY"] = _load_edges_sold_policy(sess, sold_policy, batch_size)
+            print(f"  SOLD_POLICY  : {counts['edge:SOLD_POLICY']:,} (WP-KR)")
+
+    # --- 상태 갱신 ---
+    state["last_watermark"] = watermark_after
+    runs = state.get("runs") or []
+    runs.append({
+        "watermark_before": watermark_before,
+        "watermark_after": watermark_after,
+        "counts": dict(counts),
+        "skipped": skipped_total,
+    })
+    state["runs"] = runs[-20:]  # 최근 20개만 유지
+    write_ingest_state(state, state_path)
+
+    counts["_watermark_before"] = watermark_before
+    counts["_watermark_after"] = watermark_after
+    counts["_skipped"] = skipped_total
+
+    print("-" * 60)
+    print(f" 증분 적재 완료 (skip {skipped_total:,}).")
+    return counts
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="THOTH-ON 배치 적재 파이프라인 (WP1-4)")
     sub = p.add_subparsers(dest="cmd", required=True)
     load_p = sub.add_parser("load", help="소스 디렉토리를 Neo4j 에 멱등 적재")
     load_p.add_argument("data_dir", help="CSV/Parquet 소스 디렉토리")
     load_p.add_argument("--batch-size", type=int, default=BATCH_SIZE, help="UNWIND 배치 크기")
+
+    inc_p = sub.add_parser(
+        "load-inc", help="직전 워터마크 이후 신규/변경 행만 증분 적재"
+    )
+    inc_p.add_argument("data_dir", help="CSV/Parquet 소스 디렉토리")
+    inc_p.add_argument("--batch-size", type=int, default=BATCH_SIZE, help="UNWIND 배치 크기")
+    inc_p.add_argument(
+        "--since", default=None,
+        help="워터마크 직접 지정(ISO8601). 미지정 시 상태파일 last_watermark 사용",
+    )
+    inc_p.add_argument(
+        "--state", default=None,
+        help=f"상태 파일 경로(기본: {DEFAULT_STATE_PATH})",
+    )
     return p.parse_args(argv)
 
 
@@ -859,6 +1118,14 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.cmd == "load":
         load(args.data_dir, batch_size=args.batch_size)
+        return 0
+    if args.cmd == "load-inc":
+        load_incremental(
+            args.data_dir,
+            since=args.since,
+            state_path=args.state,
+            batch_size=args.batch_size,
+        )
         return 0
     return 2
 
